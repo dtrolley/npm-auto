@@ -4,18 +4,7 @@ RELEASE_URL="https://github.com/dtrolley/npm-auto/releases/download/v0.1.0/npm-a
 TMPDIR="$(mktemp -d)"
 PLUGIN_NAME="npm-auto"
 DEST="/usr/local/emhttp/plugins/${PLUGIN_NAME}"
-echo "Downloading $RELEASE_URL"
 curl -fsSL -o "${TMPDIR}/pkg.zip" "${RELEASE_URL}"
 mkdir -p "${DEST}"
 unzip -q "${TMPDIR}/pkg.zip" -d "${TMPDIR}"
-SRC="$(find "${TMPDIR}" -maxdepth 1 -type d -name 'npm-auto*' | head -n1)"
-if [ -z "${SRC}" ]; then SRC="${TMPDIR}"; fi
-cp -a "${SRC}/." "${DEST}/"
-chmod -R 755 "${DEST}/scripts" || true
-if [ -f "${DEST}/var/settings.cfg" ]; then chmod 600 "${DEST}/var/settings.cfg" || true; fi
-GO_FILE="/boot/config/go"
-START_CMD="/usr/local/emhttp/plugins/${PLUGIN_NAME}/scripts/npm-auto-service.sh start # npm-auto"
-if ! grep -F "${START_CMD}" "${GO_FILE}" >/dev/null 2>&1; then echo "${START_CMD}" >> "${GO_FILE}"; fi
-if [ -x "${DEST}/install.sh" ]; then bash "${DEST}/install.sh"; fi
-rm -rf "${TMPDIR}"
-echo "Installed npm-auto v0.1.0"
+cp -a "${TMPDIR}/." "${DEST}/"

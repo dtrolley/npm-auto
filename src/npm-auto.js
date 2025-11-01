@@ -1,1 +1,1 @@
-(function(){ /* npm-auto front-end injector placeholder */ })();
+(function(){ console.log('npm-auto injector loaded'); })();

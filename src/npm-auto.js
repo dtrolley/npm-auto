@@ -1,0 +1,1 @@
+(function(){ /* npm-auto front-end injector placeholder */ })();

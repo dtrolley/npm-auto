@@ -1,0 +1,22 @@
+name: Build Release Package
+on:
+  release:
+    types: [published]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare package
+        run: |
+          mkdir -p package
+          cp -r src/* package/
+      - name: Zip package
+        run: |
+          cd package && zip -r ../npm-auto-package.zip .
+      - name: Upload asset to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: npm-auto-package.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

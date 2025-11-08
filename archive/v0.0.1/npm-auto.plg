@@ -1,0 +1,17 @@
+#!/bin/bash
+# Simple installer for npm-auto
+PLUGNAME="npm-auto"
+TARGET="/boot/config/plugins/${PLUGNAME}"
+
+echo "Installing ${PLUGNAME}..."
+
+mkdir -p "${TARGET}"
+cp -r ./* "${TARGET}/" 2>/dev/null
+
+chmod +x "${TARGET}/scripts/"*.sh
+
+# Hook to ensure files are available at /plugins/npm-auto/ for the webGUI
+# On Unraid, files under /boot/config/plugins/<name>/webGui are served automatically.
+echo "Installed to ${TARGET}. Please open Unraid web GUI; plugin settings are under Settings -> npm-auto."
+
+exit 0

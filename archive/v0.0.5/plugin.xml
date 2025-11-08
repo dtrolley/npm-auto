@@ -1,0 +1,11 @@
+<?xml version="0.1" encoding="utf-8"?>
+<Plugin>
+  <Name>npm-auto</Name>
+  <Version>0.1.0</Version>
+  <Author>dTrolley</Author>
+  <Title>NPM-Auto</Title>
+  <Category>Networking</Category>
+  <Description>Automates reverse‑proxy host entries in Nginx Proxy Manager.</Description>
+  <Icon>icon.png</Icon>
+  <MinVersion>6.9.0</MinVersion>
+</Plugin>

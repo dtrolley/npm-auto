@@ -1,10 +1,44 @@
-#!/bin/bash
-set -euo pipefail
-RELEASE_URL="https://github.com/dtrolley/npm-auto/releases/download/v0.1.0/npm-auto-package.zip"
-TMPDIR="$(mktemp -d)"
-PLUGIN_NAME="npm-auto"
-DEST="/usr/local/emhttp/plugins/${PLUGIN_NAME}"
-curl -fsSL -o "${TMPDIR}/pkg.zip" "${RELEASE_URL}"
-mkdir -p "${DEST}"
-unzip -q "${TMPDIR}/pkg.zip" -d "${TMPDIR}"
-cp -a "${TMPDIR}/." "${DEST}/"
+<?xml version="1.0" standalone="yes"?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name "npm-auto">
+<!ENTITY author "dTrolley">
+<!ENTITY github "&author;/&name;">
+<!ENTITY launch "Settings/npm-auto">
+<!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
+<!ENTITY version "2025.11.07">
+<!ENTITY md5 "b3a00c47c4a549d6b97cc1e793f895d0">
+]>
+
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
+    <CHANGES>
+### 2025.11.07
+- Initial Release by Gemini
+    </CHANGES>
+
+    <FILE Name="/boot/config/plugins/&name;/&name;-&version;.txz" Run="upgradepkg --install-new">
+        <URL>https://raw.github.com/&github;/master/archive/&name;-&version;.txz</URL>
+        <MD5>&md5;</MD5>
+    </FILE>
+
+    <FILE Run="/bin/bash">
+        <INLINE>
+            mkdir -p /boot/config/plugins/&name;/
+            echo "&version;" > /boot/config/plugins/&name;/version
+            echo ""
+            echo "----------------------------------------------------"
+            echo " &name; has been installed."
+            echo " Version: &version;"
+            echo "----------------------------------------------------"
+            echo ""
+        </INLINE>
+    </FILE>
+
+    <FILE Run="/bin/bash" Method="remove">
+        <INLINE>
+            removepkg &name;-&version;
+            rm -rf &plugdir;
+            rm -rf /boot/config/plugins/&name;
+        </INLINE>
+    </FILE>
+</PLUGIN>

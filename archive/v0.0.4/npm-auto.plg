@@ -1,0 +1,32 @@
+#!/bin/bash
+# npm-auto.plg – installer for npm-auto Unraid plugin (for Community Applications)
+set -e
+PLUGIN_NAME="npm-auto"
+SRC_DIR="$(pwd)/package"
+DEST_DIR="/usr/local/emhttp/plugins/${PLUGIN_NAME}"
+
+echo "Installing ${PLUGIN_NAME} version 1.0.0…"
+
+mkdir -p "${DEST_DIR}"
+cp -r "${SRC_DIR}/." "${DEST_DIR}/"
+chmod -R 755 "${DEST_DIR}/scripts"
+find "${DEST_DIR}/webGui" -type f -exec chmod 644 {} \;
+chmod 600 "${DEST_DIR}/var/settings.cfg" 2>/dev/null || true
+
+# Shortcut: add a symlink in /usr/local/emhttp/plugins for the plugin to appear in GUI
+# (Unraid usually picks up plugins under plugins/ directory automatically.)
+
+# Add startup to /boot/config/go
+GO_FILE="/boot/config/go"
+START_CMD="/usr/local/emhttp/plugins/${PLUGIN_NAME}/scripts/npm-auto-service.sh start # npm-auto"
+if ! grep -F "${START_CMD}" "${GO_FILE}" >/dev/null 2>&1; then
+  echo "${START_CMD}" >> "${GO_FILE}"
+  echo "Added startup command to ${GO_FILE}"
+fi
+
+echo "Installation complete! Next steps:"
+echo "  1. Start the plugin service with:"
+echo "       /usr/local/emhttp/plugins/${PLUGIN_NAME}/scripts/npm-auto-service.sh start"
+echo "  2. Open the Unraid web GUI -> Plugins -> npm-auto (Settings) to configure and test connectivity."
+exit 0
+

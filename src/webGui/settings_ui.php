@@ -1,1 +1,0 @@
-<div class="block"><h1>NPM Auto</h1><p>Settings UI</p></div>

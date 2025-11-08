@@ -1,1 +1,0 @@
-(function(){ console.log('npm-auto injector loaded'); })();

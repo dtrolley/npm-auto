@@ -1,0 +1,14 @@
+{
+  "name": "npm-auto",
+  "display_name": "NPM Auto Reverse Proxy Automator",
+  "version": "1.0.0",
+  "category": "Networking",
+  "description": "Automates adding new reverse-proxy hosts in Nginx Proxy Manager for Docker containers in Unraid. Adds toggles in Docker tab, settings UI, connection test, admin token auth, and more.",
+  "author": "Your Name",
+  "link": "https://github.com/yourusername/npm-auto",
+  "icon": "https://raw.githubusercontent.com/yourusername/npm-auto/main/icon.png",
+  "plugin_file": "https://raw.githubusercontent.com/yourusername/npm-auto/main/npm-auto.plg",
+  "min_unraid": "6.9.0",
+  "max_unraid": "7.99.0"
+}
+

@@ -23,12 +23,13 @@ FILENAME="$ARCHIVE_DIR/$PKG_NAME-$VERSION.txz"
 # Create the package
 mkdir -p "$TMP_DIR"
 cp -r "$CWD/src/." "$TMP_DIR"
-(cd "$TMP_DIR" && makepkg -l y -c y "$FILENAME")
+(cd "$TMP_DIR" && tar -cJf "$FILENAME" .)
 
 # Update the .plg file
 MD5=$(md5sum "$FILENAME" | awk '{print $1}')
-sed -i "s/<!ENTITY version ".*">/<!ENTITY version "$VERSION">/" "$PLG_FILE"
-sed -i "s/<!ENTITY md5 ".*">/<!ENTITY md5 "$MD5">/" "$PLG_FILE"
+TMP_PLG_FILE=$(mktemp)
+sed -e "s/<!ENTITY version \".*\">/<!ENTITY version \"$VERSION\">/" -e "s/<!ENTITY md5 \".*\">/<!ENTITY md5 \"$MD5\">/" "$PLG_FILE" > "$TMP_PLG_FILE"
+mv "$TMP_PLG_FILE" "$PLG_FILE"
 
 # Cleanup
 rm -rf "$TMP_DIR"

@@ -1,0 +1,2 @@
+<?php
+require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");

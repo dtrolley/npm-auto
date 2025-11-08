@@ -41,6 +41,7 @@
   </form>
 </div>
 
+<script src="/plugins/npm-auto/npm-auto.js"></script>
 <script>
   $(document).ready(function() {
     // Load settings

@@ -1,7 +1,7 @@
 <div id="npm-auto-settings">
   <h2>npm-auto Settings</h2>
 
-  <form id="npm-auto-settings-form">
+  <form id="npm-auto-settings-form" method="post">
     <div class="form-group">
       <label for="npm_enabled">Enable npm-auto</label>
       <input type="checkbox" id="npm_enabled" name="npm_enabled">
@@ -37,52 +37,10 @@
       <input type="checkbox" id="label_overrides" name="label_overrides">
     </div>
 
-    <button type="submit">Save Settings</button>
+    <input id="btnApply" type="submit" name="#apply" value="Apply">
+<input type="button" value="Done" onClick="done()">
   </form>
 </div>
 
 <script src="/plugins/npm-auto/npm-auto.js"></script>
-<script>
-  $(document).ready(function() {
-    // Load settings
-    $.get('/plugins/npm-auto/webGui/settings.php?action=getSettings', function(data) {
-      if (data.ok) {
-        for (const [key, value] of Object.entries(data.settings)) {
-          const input = $(`#${key}`);
-          if (input.is(':checkbox')) {
-            input.prop('checked', value === 'true');
-          } else {
-            input.val(value);
-          }
-        }
-      }
-    });
 
-    // Save settings
-    $('#npm-auto-settings-form').submit(function(e) {
-      e.preventDefault();
-      const formData = $(this).serializeArray().reduce((obj, item) => {
-        const input = $(`#${item.name}`);
-        if (input.is(':checkbox')) {
-          obj[item.name] = input.is(':checked');
-        } else {
-          obj[item.name] = item.value;
-        }
-        return obj;
-      }, {});
-
-      $.post({
-        url: '/plugins/npm-auto/webGui/settings.php?action=saveSettings',
-        data: JSON.stringify(formData),
-        contentType: 'application/json',
-        success: function(data) {
-          if (data.ok) {
-            alert('Settings saved successfully!');
-          } else {
-            alert('Error saving settings: ' + data.error);
-          }
-        }
-      });
-    });
-  });
-</script>

@@ -36,40 +36,31 @@
   }
 
   //--- Main logic ---#
-  const interval = setInterval(function() {
-    if ($('#docker-containers').length) {
-      clearInterval(interval);
+  // Patch listview to add the column after the table is loaded
+  const original_listview = window.listview;
+  window.listview = function() {
+    original_listview.apply(this, arguments);
+    addColumn();
+    updateToggles();
+  };
 
-      // Add the column and toggles
-      addColumn();
-      updateToggles();
+  // Patch loadlist to add the column after the table is reloaded
+  const original_loadlist = window.loadlist;
+  window.loadlist = function() {
+    original_loadlist.apply(this, arguments);
+    addColumn();
+    updateToggles();
+  };
 
-      // Handle toggle clicks
-      $(document).on('click', '.npm-auto-toggle', function() {
-        const container = $(this).data('container');
-        const enabled = $(this).is(':checked');
+  // Handle toggle clicks
+  $(document).on('click', '.npm-auto-toggle', function() {
+    const container = $(this).data('container');
+    const enabled = $(this).is(':checked');
 
-        $.post({
-          url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
-          data: JSON.stringify({ container, enabled }),
-          contentType: 'application/json'
-        });
-      });
-
-      // Use a MutationObserver to detect when the Docker table is updated
-      const observer = new MutationObserver(function(mutations) {
-        mutations.forEach(function(mutation) {
-          if (mutation.addedNodes.length) {
-            addColumn();
-            updateToggles();
-          }
-        });
-      });
-
-      observer.observe($('#docker-containers').get(0), {
-        childList: true,
-        subtree: true
-      });
-    }
-  }, 100);
+    $.post({
+      url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
+      data: JSON.stringify({ container, enabled }),
+      contentType: 'application/json'
+    });
+  });
 })();

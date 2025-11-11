@@ -3,5 +3,18 @@ Title="npm-auto"
 Icon="folder-open-o"
 ---
 <?php
+function save_settings($data) {
+    $out = "";
+    foreach ($data as $key => $value) {
+        if ($key === 'save') continue;
+        $out .= "$key = \"$value\"\n";
+    }
+    file_put_contents("/boot/config/plugins/npm-auto/var/settings.cfg", $out);
+}
+
+if ($_POST) {
+    save_settings($_POST);
+}
+
 require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");
 ?>

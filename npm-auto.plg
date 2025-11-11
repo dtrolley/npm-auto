@@ -7,7 +7,7 @@
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
 <!ENTITY version "2025.11.11">
-<!ENTITY md5 "229212dcc10e3a0d75a0f7a0cff345f1">
+<!ENTITY md5 "88af99329bfc223e3c2a026dd9ec6e74">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
@@ -23,7 +23,7 @@
 
     <FILE Run="/bin/bash">
         <INLINE>
-            mkdir -p /boot/config/plugins/&name;/
+            mkdir -p /boot/config/plugins/&name;/var
             echo "&version;" > /boot/config/plugins/&name;/version
             echo ""
             echo "----------------------------------------------------"

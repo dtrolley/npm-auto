@@ -10,11 +10,11 @@
   function addColumn() {
     // Add header
     if ($('#npm-auto-header').length === 0) {
-      $('#docker-containers thead tr').append('<th id="npm-auto-header">NPM Auto</th>');
+      $('table.docker-containers thead tr').append('<th id="npm-auto-header">Auto Proxy</th>');
     }
 
     // Add toggle switches
-    $('#docker-containers tbody tr').each(function() {
+    $('table.docker-containers tbody tr').each(function() {
       if ($(this).find('.npm-auto-toggle').length === 0) {
         const container = $(this).find('td:first-child a').text();
         $(this).append('<td><input type="checkbox" class="npm-auto-toggle" data-container="' + container + '"></td>');

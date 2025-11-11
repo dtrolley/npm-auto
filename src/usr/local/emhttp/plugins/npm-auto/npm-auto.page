@@ -30,6 +30,7 @@ require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");
 <script>
   $(document).ready(function() {
     const settings = <?= json_encode($settings) ?>;
+    console.log('Settings:', settings);
     for (const [key, value] of Object.entries(settings)) {
       const input = $(`#${key}`);
       if (input.is(':checkbox')) {

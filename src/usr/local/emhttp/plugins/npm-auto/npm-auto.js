@@ -23,7 +23,7 @@
   }
 
   function updateToggles() {
-    $.get('/plugins/npm-auto/settings.php?action=getState', function(data) {
+    $.get('/plugins/npm-auto/webGui/settings.php?action=getState', function(data) {
       if (data.ok) {
         $('.npm-auto-toggle').each(function() {
           const container = $(this).data('container');
@@ -47,7 +47,7 @@
       const enabled = $(this).is(':checked');
 
       $.post({
-        url: '/plugins/npm-auto/settings.php?action=setToggle',
+        url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
         data: JSON.stringify({ container, enabled }),
         contentType: 'application/json'
       });

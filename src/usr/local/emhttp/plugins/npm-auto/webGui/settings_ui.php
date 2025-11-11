@@ -45,7 +45,7 @@
 <script>
   $(document).ready(function() {
     // Load settings
-    $.get('/plugins/npm-auto/settings.php?action=getSettings', function(data) {
+    $.get('/plugins/npm-auto/webGui/settings.php?action=getSettings', function(data) {
       if (data.ok) {
         for (const [key, value] of Object.entries(data.settings)) {
           const input = $(`#${key}`);
@@ -72,7 +72,7 @@
       }, {});
 
       $.post({
-        url: '/plugins/npm-auto/settings.php?action=saveSettings',
+        url: '/plugins/npm-auto/webGui/settings.php?action=saveSettings',
         data: JSON.stringify(formData),
         contentType: 'application/json',
         success: function(data) {

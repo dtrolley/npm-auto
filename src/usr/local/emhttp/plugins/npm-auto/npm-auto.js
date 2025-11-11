@@ -36,36 +36,40 @@
   }
 
   //--- Main logic ---#
-  $(document).ready(function() {
-    // Add the column and toggles
-    addColumn();
-    updateToggles();
+  const interval = setInterval(function() {
+    if ($('#docker-containers').length) {
+      clearInterval(interval);
 
-    // Handle toggle clicks
-    $(document).on('click', '.npm-auto-toggle', function() {
-      const container = $(this).data('container');
-      const enabled = $(this).is(':checked');
+      // Add the column and toggles
+      addColumn();
+      updateToggles();
 
-      $.post({
-        url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
-        data: JSON.stringify({ container, enabled }),
-        contentType: 'application/json'
+      // Handle toggle clicks
+      $(document).on('click', '.npm-auto-toggle', function() {
+        const container = $(this).data('container');
+        const enabled = $(this).is(':checked');
+
+        $.post({
+          url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
+          data: JSON.stringify({ container, enabled }),
+          contentType: 'application/json'
+        });
       });
-    });
 
-    // Use a MutationObserver to detect when the Docker table is updated
-    const observer = new MutationObserver(function(mutations) {
-      mutations.forEach(function(mutation) {
-        if (mutation.addedNodes.length) {
-          addColumn();
-          updateToggles();
-        }
+      // Use a MutationObserver to detect when the Docker table is updated
+      const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+          if (mutation.addedNodes.length) {
+            addColumn();
+            updateToggles();
+          }
+        });
       });
-    });
 
-    observer.observe($('#docker-containers').get(0), {
-      childList: true,
-      subtree: true
-    });
-  });
+      observer.observe($('#docker-containers').get(0), {
+        childList: true,
+        subtree: true
+      });
+    }
+  }, 100);
 })();

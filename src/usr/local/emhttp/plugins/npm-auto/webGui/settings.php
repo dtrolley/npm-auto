@@ -21,6 +21,10 @@ function get_settings() {
 }
 
 function save_settings($data) {
+    if (!is_writable($SETTINGS_FILE)) {
+        echo json_encode(['ok' => false, 'error' => 'Settings file is not writable.']);
+        return;
+    }
     $out = "";
     foreach ($data as $key => $value) {
         $out .= "$key = \"$value\"\n";

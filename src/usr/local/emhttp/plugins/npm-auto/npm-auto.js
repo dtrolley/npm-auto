@@ -8,16 +8,22 @@
 (function() {
   //--- Functions ---#
   function addColumn() {
+    const versionHeader = $('table.docker-containers thead th:contains("Version")');
+    if (versionHeader.length === 0) {
+      return;
+    }
+    const versionIndex = versionHeader.index();
+
     // Add header
     if ($('#npm-auto-header').length === 0) {
-      $('table.docker-containers thead tr').append('<th id="npm-auto-header">Auto Proxy</th>');
+      versionHeader.after('<th id="npm-auto-header">Auto Proxy</th>');
     }
 
     // Add toggle switches
     $('table.docker-containers tbody tr').each(function() {
       if ($(this).find('.npm-auto-toggle').length === 0) {
         const container = $(this).find('td:first-child a').text();
-        $(this).append('<td><input type="checkbox" class="npm-auto-toggle" data-container="' + container + '"></td>');
+        $(this).find('td').eq(versionIndex).after('<td><input type="checkbox" class="npm-auto-toggle" data-container="' + container + '"></td>');
       }
     });
   }
@@ -36,21 +42,27 @@
   }
 
   //--- Main logic ---#
-  // Patch listview to add the column after the table is loaded
-  const original_listview = window.listview;
-  window.listview = function() {
-    original_listview.apply(this, arguments);
-    addColumn();
-    updateToggles();
-  };
+  const observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+      if (mutation.addedNodes.length) {
+        addColumn();
+        updateToggles();
+      }
+    });
+  });
 
-  // Patch loadlist to add the column after the table is reloaded
-  const original_loadlist = window.loadlist;
-  window.loadlist = function() {
-    original_loadlist.apply(this, arguments);
-    addColumn();
-    updateToggles();
-  };
+  const interval = setInterval(function() {
+    const dockerTable = $('table.docker-containers');
+    if (dockerTable.length) {
+      clearInterval(interval);
+      observer.observe(dockerTable.get(0), {
+        childList: true,
+        subtree: true
+      });
+      addColumn();
+      updateToggles();
+    }
+  }, 100);
 
   // Handle toggle clicks
   $(document).on('click', '.npm-auto-toggle', function() {

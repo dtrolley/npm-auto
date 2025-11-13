@@ -23,7 +23,7 @@
     $('table#docker_containers tbody tr').each(function() {
       if ($(this).find('.npm-auto-toggle').length === 0) {
         const container = $(this).find('td:first-child a').text();
-        $(this).find('td').eq(versionIndex).after('<td><input type="checkbox" class="npm-auto-toggle" data-container="' + container + '"></td>');
+        $(this).find('td').eq(versionIndex).after('<td class="ct-autostart"><input type="checkbox" class="autostart npm-auto-toggle" data-container="' + container + '"></td>');
       }
     });
   }

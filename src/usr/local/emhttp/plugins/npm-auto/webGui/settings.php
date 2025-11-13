@@ -43,12 +43,21 @@ function get_state() {
 }
 
 function set_toggle($data) {
-    $container = $data['container'];
-    $enabled = $data['enabled'];
-
     if (!file_exists($STATE_FILE)) {
+        if (!is_writable(dirname($STATE_FILE))) {
+            echo json_encode(['ok' => false, 'error' => 'State file directory is not writable.']);
+            return;
+        }
         file_put_contents($STATE_FILE, "{}");
     }
+
+    if (!is_writable($STATE_FILE)) {
+        echo json_encode(['ok' => false, 'error' => 'State file is not writable.']);
+        return;
+    }
+
+    $container = $data['container'];
+    $enabled = $data['enabled'];
 
     $state = json_decode(file_get_contents($STATE_FILE), true);
 

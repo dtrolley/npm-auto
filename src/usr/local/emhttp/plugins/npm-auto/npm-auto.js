@@ -8,7 +8,7 @@
 (function() {
   //--- Functions ---#
   function addColumn() {
-    const versionHeader = $('table.docker-containers thead th:contains("Version")');
+    const versionHeader = $('table#docker_containers thead th:contains("Version")');
     if (versionHeader.length === 0) {
       return;
     }
@@ -20,7 +20,7 @@
     }
 
     // Add toggle switches
-    $('table.docker-containers tbody tr').each(function() {
+    $('table#docker_containers tbody tr').each(function() {
       if ($(this).find('.npm-auto-toggle').length === 0) {
         const container = $(this).find('td:first-child a').text();
         $(this).find('td').eq(versionIndex).after('<td><input type="checkbox" class="npm-auto-toggle" data-container="' + container + '"></td>');
@@ -52,7 +52,7 @@
   });
 
   const interval = setInterval(function() {
-    const dockerTable = $('table.docker-containers');
+    const dockerTable = $('table#docker_containers');
     if (dockerTable.length) {
       clearInterval(interval);
       observer.observe(dockerTable.get(0), {

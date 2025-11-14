@@ -5,6 +5,13 @@
 // This script handles the backend logic for the npm-auto settings page.
 //==============================================================================
 
+//--- Debugging ---#
+file_put_contents("/tmp/npm-auto-debug.log", "--- New Request ---\n", FILE_APPEND);
+file_put_contents("/tmp/npm-auto-debug.log", "Time: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
+file_put_contents("/tmp/npm-auto-debug.log", "Request: " . print_r($_REQUEST, true) . "\n", FILE_APPEND);
+file_put_contents("/tmp/npm-auto-debug.log", "Post: " . print_r($_POST, true) . "\n", FILE_APPEND);
+file_put_contents("/tmp/npm-auto-debug.log", "Input: " . file_get_contents('php://input') . "\n", FILE_APPEND);
+
 //--- Configuration ---#
 $BASE = "/boot/config/plugins/npm-auto";
 $SETTINGS_FILE = "{$BASE}/var/settings.cfg";

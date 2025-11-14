@@ -25,7 +25,7 @@
         const container = $(this).find('td:first-child a').text();
         const newCell = `
           <td class="ct-autostart">
-            <input type="checkbox" class="npm-auto-toggle" data-container="${container}" style="display: none;">
+            <input type="checkbox" class="autostart npm-auto-toggle" data-container="${container}" style="display: none;">
             <div class="switch-button-background">
               <div class="switch-button-button"></div>
             </div>

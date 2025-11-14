@@ -36,8 +36,10 @@ function save_settings($data) {
 function get_state() {
     if (file_exists($STATE_FILE)) {
         $state = json_decode(file_get_contents($STATE_FILE), true);
+        file_put_contents("/tmp/npm-auto-debug.log", "State: " . print_r($state, true) . "\n", FILE_APPEND);
         echo json_encode(['ok' => true, 'state' => $state]);
     } else {
+        file_put_contents("/tmp/npm-auto-debug.log", "State file not found.\n", FILE_APPEND);
         echo json_encode(['ok' => false, 'error' => 'State file not found.']);
     }
 }

@@ -87,6 +87,7 @@
   }, 100);
 
   $(document).on('click', '.npm-auto-toggle + .switch-button-background', function() {
+    console.log('npm-auto: Toggle clicked');
     const checkbox = $(this).prev('.npm-auto-toggle');
     const container = checkbox.data('container');
     const enabled = !checkbox.prop('checked');
@@ -98,6 +99,7 @@
     $(this).siblings('.on').toggle(enabled);
     $(this).siblings('.off').toggle(!enabled);
 
+    console.log('npm-auto: Sending setToggle request with:', { container, enabled });
     $.post({
       url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
       data: JSON.stringify({ container, enabled }),

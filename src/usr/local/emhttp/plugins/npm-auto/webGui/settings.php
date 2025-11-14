@@ -6,7 +6,7 @@
 //==============================================================================
 
 //--- Configuration ---#
-$BASE = "/boot/config/plugins/npm-auto";
+$BASE = "/tmp/npm-auto";
 $SETTINGS_FILE = "{$BASE}/var/settings.cfg";
 $STATE_FILE = "{$BASE}/var/state.json";
 

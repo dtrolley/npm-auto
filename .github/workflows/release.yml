@@ -7,16 +7,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare package
+      - name: Build package
         run: |
-          mkdir -p package
-          cp -r src/* package/
-      - name: Zip package
-        run: |
-          cd package && zip -r ../npm-auto-package.zip .
+          chmod +x pkg_build.sh
+          ./pkg_build.sh
       - name: Upload asset to release
         uses: softprops/action-gh-release@v1
         with:
-          files: npm-auto-package.zip
+          files: npm-auto/archive/*.txz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

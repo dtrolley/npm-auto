@@ -48,30 +48,13 @@ function set_toggle($data) {
     file_put_contents("/tmp/npm-auto-debug.log", "set_toggle called\n", FILE_APPEND);
     file_put_contents("/tmp/npm-auto-debug.log", "Data: " . print_r($data, true) . "\n", FILE_APPEND);
 
-    if (!file_exists($STATE_FILE)) {
-        if (!is_writable(dirname($STATE_FILE))) {
-            echo json_encode(['ok' => false, 'error' => 'State file directory is not writable.']);
-            return;
-        }
-        file_put_contents($STATE_FILE, "{}");
-    }
-
-    if (!is_writable($STATE_FILE)) {
-        echo json_encode(['ok' => false, 'error' => 'State file is not writable.']);
-        return;
-    }
-
     $container = $data['container'];
     $enabled = $data['enabled'];
 
-    $state = json_decode(file_get_contents($STATE_FILE), true);
+    $state = json_decode(file_get_contents($STATE_FILE), true) ?: [];
     file_put_contents("/tmp/npm-auto-debug.log", "Old State: " . print_r($state, true) . "\n", FILE_APPEND);
 
-    if ($enabled) {
-        $state[$container] = ['enabled' => true];
-    } else {
-        unset($state[$container]);
-    }
+    $state[$container] = ['enabled' => $enabled];
 
     file_put_contents($STATE_FILE, json_encode($state, JSON_PRETTY_PRINT));
     file_put_contents("/tmp/npm-auto-debug.log", "New State: " . print_r($state, true) . "\n", FILE_APPEND);

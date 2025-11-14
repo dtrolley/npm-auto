@@ -43,7 +43,7 @@
       if (data.ok) {
         $('.npm-auto-toggle').each(function() {
           const container = $(this).data('container');
-          const isChecked = data.state[container] && data.state[container].enabled;
+          const isChecked = data.state[container]?.enabled || false;
           $(this).prop('checked', isChecked);
           const switchBg = $(this).next('.switch-button-background');
           if (isChecked) {

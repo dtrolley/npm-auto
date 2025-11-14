@@ -39,6 +39,9 @@
   }
 
   function updateToggles() {
+    $.get('/plugins/npm-auto/webGui/test.php', function(data) {
+      console.log('npm-auto: test.php response:', data);
+    });
     $.get('/plugins/npm-auto/webGui/settings.php?action=getState', function(data) {
       if (data.ok) {
         $('.npm-auto-toggle').each(function() {

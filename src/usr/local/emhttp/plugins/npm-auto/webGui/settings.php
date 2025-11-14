@@ -42,26 +42,7 @@ function save_settings($data) {
 }
 
 function get_state() {
-    $dir = dirname($STATE_FILE);
-    if (!file_exists($dir)) {
-        if (mkdir($dir, 0777, true)) {
-            file_put_contents("/tmp/npm-auto-debug.log", "Directory created: $dir\n", FILE_APPEND);
-            chmod($dir, 0777);
-        } else {
-            file_put_contents("/tmp/npm-auto-debug.log", "Failed to create directory: $dir\n", FILE_APPEND);
-        }
-    }
-
-    if (file_exists($STATE_FILE)) {
-        $state = json_decode(file_get_contents($STATE_FILE), true);
-        file_put_contents("/tmp/npm-auto-debug.log", "State: " . print_r($state, true) . "\n", FILE_APPEND);
-        echo json_encode(['ok' => true, 'state' => $state]);
-    } else {
-        file_put_contents("/tmp/npm-auto-debug.log", "State file not found, creating it.\n", FILE_APPEND);
-        file_put_contents($STATE_FILE, "{}");
-        chmod($STATE_FILE, 0666);
-        echo json_encode(['ok' => true, 'state' => []]);
-    }
+    echo json_encode(['ok' => true, 'state' => ['Compose-Craft' => ['enabled' => true]]]);
 }
 
 function set_toggle($data) {

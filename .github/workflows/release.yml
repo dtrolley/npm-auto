@@ -1,7 +1,8 @@
-name: Build Release Package
+name: Build Package
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,9 +12,3 @@ jobs:
         run: |
           chmod +x pkg_build.sh
           ./pkg_build.sh
-      - name: Upload asset to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: npm-auto/archive/*.txz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

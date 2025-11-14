@@ -92,6 +92,7 @@
     const container = checkbox.data('container');
     const enabled = !checkbox.prop('checked');
     const switchButton = $(this).find('.switch-button-button');
+    const csrfToken = $('input[name="csrf_token"]').val();
 
     checkbox.prop('checked', enabled);
     $(this).toggleClass('checked');
@@ -99,10 +100,10 @@
     $(this).siblings('.on').toggle(enabled);
     $(this).siblings('.off').toggle(!enabled);
 
-    console.log('npm-auto: Sending setToggle request with:', { container, enabled });
+    console.log('npm-auto: Sending setToggle request with:', { container, enabled, csrf_token: csrfToken });
     $.post({
       url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
-      data: JSON.stringify({ container, enabled }),
+      data: JSON.stringify({ container, enabled, csrf_token: csrfToken }),
       contentType: 'application/json'
     });
   });

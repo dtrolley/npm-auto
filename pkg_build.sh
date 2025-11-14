@@ -23,6 +23,7 @@ FILENAME="$ARCHIVE_DIR/$PKG_NAME-$VERSION.txz"
 # Create the package
 mkdir -p "$TMP_DIR"
 cp -r "$CWD/src/." "$TMP_DIR"
+chmod +x "$TMP_DIR/usr/local/emhttp/plugins/npm-auto/webGui/settings.php"
 (cd "$TMP_DIR" && tar -cJf "$FILENAME" .)
 
 # Update the .plg file

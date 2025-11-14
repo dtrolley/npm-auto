@@ -102,8 +102,8 @@
 
     console.log('npm-auto: Sending setToggle request with:', { container, enabled, csrf_token: csrfToken });
     $.post({
-      url: `/plugins/npm-auto/webGui/settings.php?action=setToggle&csrf_token=${csrfToken}`,
-      data: JSON.stringify({ container, enabled }),
+      url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
+      data: JSON.stringify({ container, enabled, csrf_token: csrfToken }),
       contentType: 'application/json'
     });
   });

@@ -6,6 +6,7 @@
 //==============================================================================
 
 //--- Debugging ---#
+file_put_contents("/tmp/npm-auto-heartbeat.log", "Heartbeat: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
 file_put_contents("/tmp/npm-auto-debug.log", "--- New Request ---\n", FILE_APPEND);
 file_put_contents("/tmp/npm-auto-debug.log", "Time: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
 file_put_contents("/tmp/npm-auto-debug.log", "Request: " . print_r($_REQUEST, true) . "\n", FILE_APPEND);

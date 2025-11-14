@@ -6,7 +6,6 @@
 //==============================================================================
 
 //--- Debugging ---#
-file_put_contents("/tmp/npm-auto-heartbeat.log", "Heartbeat: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
 file_put_contents("/tmp/npm-auto-debug.log", "--- New Request ---\n", FILE_APPEND);
 file_put_contents("/tmp/npm-auto-debug.log", "Time: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
 file_put_contents("/tmp/npm-auto-debug.log", "Request: " . print_r($_REQUEST, true) . "\n", FILE_APPEND);
@@ -42,7 +41,44 @@ function save_settings($data) {
 }
 
 function get_state() {
-    echo json_encode(['ok' => true, 'state' => ['Compose-Craft' => ['enabled' => true]]]);
+    $dir = dirname($STATE_FILE);
+    if (!file_exists($dir)) {
+        if (!mkdir($dir, 0777, true)) {
+            $error = "Failed to create directory: $dir";
+            file_put_contents("/tmp/npm-auto-debug.log", "$error\n", FILE_APPEND);
+            echo json_encode(['ok' => false, 'error' => $error]);
+            return;
+        }
+        chmod($dir, 0777);
+    }
+
+    if (!file_exists($STATE_FILE)) {
+        if (file_put_contents($STATE_FILE, "{}") === false) {
+            $error = "Failed to create state file: $STATE_FILE";
+            file_put_contents("/tmp/npm-auto-debug.log", "$error\n", FILE_APPEND);
+            echo json_encode(['ok' => false, 'error' => $error]);
+            return;
+        }
+        chmod($STATE_FILE, 0666);
+    }
+
+    $stateJson = file_get_contents($STATE_FILE);
+    if ($stateJson === false) {
+        $error = "Failed to read state file: $STATE_FILE";
+        file_put_contents("/tmp/npm-auto-debug.log", "$error\n", FILE_APPEND);
+        echo json_encode(['ok' => false, 'error' => $error]);
+        return;
+    }
+
+    $state = json_decode($stateJson, true);
+    if ($state === null) {
+        $error = "Failed to decode state file: $STATE_FILE";
+        file_put_contents("/tmp/npm-auto-debug.log", "$error\n", FILE_APPEND);
+        echo json_encode(['ok' => false, 'error' => $error]);
+        return;
+    }
+
+    echo json_encode(['ok' => true, 'state' => $state]);
 }
 
 function set_toggle($data) {

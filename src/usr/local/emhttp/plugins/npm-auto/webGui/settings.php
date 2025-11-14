@@ -96,6 +96,15 @@ header('Content-Type: application/json');
 
 $action = $_REQUEST['action'] ?? '';
 
+// CSRF Token validation for actions that modify state
+if (in_array($action, ['saveSettings', 'setToggle'])) {
+    $csrf_token = $_REQUEST['csrf_token'] ?? '';
+    if (!verifyCsrfToken($csrf_token)) {
+        echo json_encode(['ok' => false, 'error' => 'CSRF token validation failed.']);
+        exit();
+    }
+}
+
 switch ($action) {
     case 'getSettings':
         get_settings();
@@ -115,5 +124,12 @@ switch ($action) {
         break;
     default:
         echo json_encode(['ok' => false, 'error' => 'Unknown action.']);
+}
+
+// Dummy CSRF verification function for now, replace with actual Unraid function
+function verifyCsrfToken($token) {
+    // In a real Unraid plugin, you would use Unraid's built-in CSRF validation.
+    // For now, we'll just check if it's not empty.
+    return !empty($token);
 }
 

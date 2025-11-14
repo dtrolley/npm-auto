@@ -26,8 +26,8 @@
         const newCell = `
           <td class="ct-autostart">
             <input type="checkbox" class="autostart npm-auto-toggle" data-container="${container}" style="display: none;">
-            <div class="switch-button-background">
-              <div class="switch-button-button"></div>
+            <div class="switch-button-background" style="width:25px;height:11px">
+              <div class="switch-button-button" style="width:12px;height:11px;left:-1px"></div>
             </div>
             <span class="switch-button-label off">Off</span>
             <span class="switch-button-label on" style="display: none;">On</span>
@@ -46,12 +46,15 @@
           const isChecked = data.state[container]?.enabled || false;
           $(this).prop('checked', isChecked);
           const switchBg = $(this).next('.switch-button-background');
+          const switchButton = switchBg.find('.switch-button-button');
           if (isChecked) {
             switchBg.addClass('checked');
+            switchButton.css('left', '12px');
             switchBg.siblings('.on').show();
             switchBg.siblings('.off').hide();
           } else {
             switchBg.removeClass('checked');
+            switchButton.css('left', '-1px');
             switchBg.siblings('.on').hide();
             switchBg.siblings('.off').show();
           }
@@ -83,14 +86,15 @@
     }
   }, 100);
 
-  // Handle toggle clicks
   $(document).on('click', '.npm-auto-toggle + .switch-button-background', function() {
     const checkbox = $(this).prev('.npm-auto-toggle');
     const container = checkbox.data('container');
     const enabled = !checkbox.prop('checked');
+    const switchButton = $(this).find('.switch-button-button');
 
     checkbox.prop('checked', enabled);
     $(this).toggleClass('checked');
+    switchButton.css('left', enabled ? '12px' : '-1px');
     $(this).siblings('.on').toggle(enabled);
     $(this).siblings('.off').toggle(!enabled);
 

@@ -39,8 +39,9 @@ function get_state() {
         file_put_contents("/tmp/npm-auto-debug.log", "State: " . print_r($state, true) . "\n", FILE_APPEND);
         echo json_encode(['ok' => true, 'state' => $state]);
     } else {
-        file_put_contents("/tmp/npm-auto-debug.log", "State file not found.\n", FILE_APPEND);
-        echo json_encode(['ok' => false, 'error' => 'State file not found.']);
+        file_put_contents("/tmp/npm-auto-debug.log", "State file not found, creating it.\n", FILE_APPEND);
+        file_put_contents($STATE_FILE, "{}");
+        echo json_encode(['ok' => true, 'state' => []]);
     }
 }
 
@@ -50,6 +51,10 @@ function set_toggle($data) {
 
     $container = $data['container'];
     $enabled = $data['enabled'];
+
+    if (!file_exists(dirname($STATE_FILE))) {
+        mkdir(dirname($STATE_FILE), 0777, true);
+    }
 
     $state = json_decode(file_get_contents($STATE_FILE), true) ?: [];
     file_put_contents("/tmp/npm-auto-debug.log", "Old State: " . print_r($state, true) . "\n", FILE_APPEND);

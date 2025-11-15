@@ -1,0 +1,43 @@
+Menu="User Utilities"
+Title="npm-auto"
+Icon="folder-open-o"
+---
+<?php
+function save_settings($data) {
+    $out = "";
+    $checkboxes = ['npm_enabled', 'label_overrides'];
+    foreach ($checkboxes as $checkbox) {
+        if (!isset($data[$checkbox])) {
+            $data[$checkbox] = 'off';
+        }
+    }
+    foreach ($data as $key => $value) {
+        if ($key === '#apply') continue;
+        $out .= "$key = \"$value\"\n";
+    }
+    file_put_contents("/boot/config/plugins/npm-auto/var/settings.cfg", $out);
+}
+
+if ($_POST) {
+    save_settings($_POST);
+}
+
+$settings_file = "/boot/config/plugins/npm-auto/var/settings.cfg";
+$settings = file_exists($settings_file) ? parse_ini_file($settings_file) : [];
+
+require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");
+?>
+<script>
+  $(document).ready(function() {
+    const settings = <?= json_encode($settings) ?>;
+    console.log('Settings:', settings);
+    for (const [key, value] of Object.entries(settings)) {
+      const input = $(`#${key}`);
+      if (input.is(':checkbox')) {
+        input.prop('checked', value === 'on');
+      } else {
+        input.val(value);
+      }
+    }
+  });
+</script>

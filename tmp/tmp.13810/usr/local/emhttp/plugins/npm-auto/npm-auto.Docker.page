@@ -1,0 +1,4 @@
+Menu="Docker"
+Icon="server"
+---
+<script src="/plugins/npm-auto/npm-auto.js"></script>

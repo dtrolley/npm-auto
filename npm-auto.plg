@@ -6,8 +6,8 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2025.11.15-1">
-<!ENTITY md5 "a43a86d85155d931dea3da4f47222eae">
+<!ENTITY version "2025.11.15-2">
+<!ENTITY md5 "c4637a46811838dd8940f75511d848d5">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
@@ -23,15 +23,11 @@
 
     <FILE Run="/bin/bash">
         <INLINE>
-            mkdir -p /boot/config/plugins/&name;/var
-            chmod -R 777 /boot/config/plugins/&name;/var
-            chown -R root:root /boot/config/plugins/&name;/var
             echo "&version;" > /boot/config/plugins/&name;/version
             echo ""
             echo "----------------------------------------------------"
             echo " &name; has been installed."
             echo " Version: &version;"
-            echo " NOTE: The permissions of the /boot/config/plugins/&name;/var directory have been set to 777 to ensure that the plugin can save its state. This is not the most secure option, but it is necessary for the plugin to function correctly."
             echo "----------------------------------------------------"
             echo ""
         </INLINE>

@@ -52,21 +52,38 @@ function get_state() {
 
 function set_toggle($data) {
     global $STATE_FILE;
+    file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Inside set_toggle function.\n", FILE_APPEND);
+
     $container = $data['container'];
     $enabled = $data['enabled'] === 'true';
+    file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Container: $container, Enabled: " . ($enabled ? 'true' : 'false') . "\n", FILE_APPEND);
 
-    if (!file_exists(dirname($STATE_FILE))) {
-        mkdir(dirname($STATE_FILE), 0755, true);
+    $dir = dirname($STATE_FILE);
+    if (!file_exists($dir)) {
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Directory $dir does not exist, creating it.\n", FILE_APPEND);
+        mkdir($dir, 0755, true);
     }
 
-    if (!is_writable(dirname($STATE_FILE))) {
-        echo json_encode(['ok' => false, 'error' => 'State file directory is not writable.']);
+    if (!is_writable($dir)) {
+        $error = "State file directory $dir is not writable.";
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Error: $error\n", FILE_APPEND);
+        echo json_encode(['ok' => false, 'error' => $error]);
         return;
+    } else {
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Directory $dir is writable.\n", FILE_APPEND);
     }
 
     $state = [];
     if (file_exists($STATE_FILE)) {
-        $state = json_decode(file_get_contents($STATE_FILE), true);
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "State file exists, reading it.\n", FILE_APPEND);
+        $stateJson = file_get_contents($STATE_FILE);
+        $state = json_decode($stateJson, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $error = "Error decoding state.json: " . json_last_error_msg();
+            file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Error: $error\n", FILE_APPEND);
+            // Don't exit, just start with an empty state
+            $state = [];
+        }
     }
 
     if (!isset($state[$container])) {
@@ -74,10 +91,16 @@ function set_toggle($data) {
     }
     $state[$container]['enabled'] = $enabled;
 
-    if (file_put_contents($STATE_FILE, json_encode($state, JSON_PRETTY_PRINT))) {
+    $newStateJson = json_encode($state, JSON_PRETTY_PRINT);
+    file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "New state to write: $newStateJson\n", FILE_APPEND);
+
+    if (file_put_contents($STATE_FILE, $newStateJson)) {
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Successfully wrote to state file.\n", FILE_APPEND);
         echo json_encode(['ok' => true]);
     } else {
-        echo json_encode(['ok' => false, 'error' => 'Failed to write to state file.']);
+        $error = "Failed to write to state file.";
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Error: $error\n", FILE_APPEND);
+        echo json_encode(['ok' => false, 'error' => $error]);
     }
 }
 

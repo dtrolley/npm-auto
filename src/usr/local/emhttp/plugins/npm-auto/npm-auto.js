@@ -26,11 +26,11 @@
         const newCell = `
           <td class="ct-autostart">
             <input type="checkbox" class="autostart npm-auto-toggle" data-container="${container}" style="display: none;">
-            <div class="switch-button-background" style="width:25px;height:11px">
-              <div class="switch-button-button" style="width:12px;height:11px;left:-1px"></div>
+            <div class="npm-auto-switch-background">
+              <div class="npm-auto-switch-button"></div>
             </div>
-            <span class="switch-button-label off">Off</span>
-            <span class="switch-button-label on" style="display: none;">On</span>
+            <span class="npm-auto-switch-label off">Off</span>
+            <span class="npm-auto-switch-label on" style="display: none;">On</span>
           </td>
         `;
         $(this).find('td').eq(versionIndex).after(newCell);
@@ -45,16 +45,13 @@
           const container = $(this).data('container');
           const isChecked = data.state[container]?.enabled || false;
           $(this).prop('checked', isChecked);
-          const switchBg = $(this).next('.switch-button-background');
-          const switchButton = switchBg.find('.switch-button-button');
+          const switchBg = $(this).next('.npm-auto-switch-background');
           if (isChecked) {
             switchBg.addClass('checked');
-            switchButton.css('left', '12px');
             switchBg.siblings('.on').show();
             switchBg.siblings('.off').hide();
           } else {
             switchBg.removeClass('checked');
-            switchButton.css('left', '-1px');
             switchBg.siblings('.on').hide();
             switchBg.siblings('.off').show();
           }
@@ -68,7 +65,6 @@
     mutations.forEach(function(mutation) {
       if (mutation.addedNodes.length) {
         addColumn();
-        updateToggles();
       }
     });
   });
@@ -77,25 +73,23 @@
     const dockerTable = $('table#docker_containers');
     if (dockerTable.length) {
       clearInterval(interval);
+      addColumn();
+      updateToggles();
       observer.observe(dockerTable.get(0), {
         childList: true,
         subtree: true
       });
-      addColumn();
-      updateToggles();
     }
   }, 100);
 
-  $(document).on('click', '.npm-auto-toggle + .switch-button-background', function() {
+  $(document).on('click', '.npm-auto-toggle + .npm-auto-switch-background', function() {
     const checkbox = $(this).prev('.npm-auto-toggle');
     const container = checkbox.data('container');
     const enabled = !checkbox.prop('checked');
-    const switchButton = $(this).find('.switch-button-button');
     const csrfToken = $('input[name="csrf_token"]').val();
 
     checkbox.prop('checked', enabled);
     $(this).toggleClass('checked');
-    switchButton.css('left', enabled ? '12px' : '-1px');
     $(this).siblings('.on').toggle(enabled);
     $(this).siblings('.off').toggle(!enabled);
 

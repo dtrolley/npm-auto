@@ -1,4 +1,5 @@
 Menu="Docker"
 Icon="server"
 ---
+<link rel="stylesheet" href="/plugins/npm-auto/npm-auto.css">
 <script src="/plugins/npm-auto/npm-auto.js"></script>

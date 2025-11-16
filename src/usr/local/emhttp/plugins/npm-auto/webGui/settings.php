@@ -53,7 +53,7 @@ function get_state() {
 function set_toggle($data) {
     global $STATE_FILE;
     $container = $data['container'];
-    $enabled = $data['enabled'];
+    $enabled = $data['enabled'] === 'true';
 
     if (!file_exists(dirname($STATE_FILE))) {
         mkdir(dirname($STATE_FILE), 0755, true);
@@ -91,18 +91,14 @@ switch ($action) {
         get_settings();
         break;
     case 'saveSettings':
-        $json = file_get_contents('php://input');
-        $data = json_decode($json, true);
-        save_settings($data);
+        save_settings($_POST);
         break;
     case 'getState':
         get_state();
         break;
     case 'setToggle':
         file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Entering setToggle case.\n", FILE_APPEND);
-        $json = file_get_contents('php://input');
-        $data = json_decode($json, true);
-        set_toggle($data);
+        set_toggle($_POST);
         break;
     default:
         echo json_encode(['ok' => false, 'error' => 'Unknown action.']);

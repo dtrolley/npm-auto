@@ -6,10 +6,10 @@
 //==============================================================================
 
 (function() {
-  console.log('npm-auto.js loaded');
+  let dockerTable;
+
   //--- Functions ---#
   function addColumn() {
-    console.log('addColumn called');
     const versionHeader = $('table#docker_containers thead th:contains("Version")');
     if (versionHeader.length === 0) {
       return;
@@ -41,7 +41,6 @@
   }
 
   function updateToggles() {
-    console.log('updateToggles called');
     $.get('/plugins/npm-auto/webGui/settings.php?action=getState', function(data) {
       if (data.ok) {
         $('.npm-auto-toggle').each(function() {
@@ -64,22 +63,22 @@
   }
 
   //--- Main logic ---#
-  console.log('Setting up observer and interval');
   const observer = new MutationObserver(function(mutations) {
-    console.log('MutationObserver triggered');
     mutations.forEach(function(mutation) {
       if (mutation.addedNodes.length) {
-        console.log('  - added nodes detected');
+        observer.disconnect();
         addColumn();
+        observer.observe(dockerTable.get(0), {
+          childList: true,
+          subtree: true
+        });
       }
     });
   });
 
   const interval = setInterval(function() {
-    console.log('Interval check');
-    const dockerTable = $('table#docker_containers');
+    dockerTable = $('table#docker_containers');
     if (dockerTable.length) {
-      console.log('  - docker table found, clearing interval');
       clearInterval(interval);
       addColumn();
       updateToggles();
@@ -91,7 +90,6 @@
   }, 100);
 
   $(document).on('click', '.npm-auto-toggle + .npm-auto-switch-background', function() {
-    console.log('Click handler triggered');
     const checkbox = $(this).prev('.npm-auto-toggle');
     const container = checkbox.data('container');
     const enabled = !checkbox.prop('checked');

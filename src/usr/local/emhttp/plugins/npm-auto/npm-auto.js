@@ -24,10 +24,10 @@
     // Add toggle switches
     $('table#docker_containers tbody tr').each(function() {
       if ($(this).find('.npm-auto-toggle').length === 0) {
-        const container = $(this).find('td:first-child a').text();
+        const containerId = $(this).attr('id').replace('ct-', '');
         const newCell = `
           <td class="ct-autostart">
-            <input type="checkbox" class="autostart npm-auto-toggle" data-container="${container}" style="display: none;">
+            <input type="checkbox" class="autostart npm-auto-toggle" data-container="${containerId}" style="display: none;">
             <div class="npm-auto-switch-background">
               <div class="npm-auto-switch-button"></div>
             </div>
@@ -42,15 +42,10 @@
 
   function updateToggles() {
     $.get('/plugins/npm-auto/webGui/settings.php?action=getState', function(data) {
-      console.log('updateToggles received data:', data);
       if (data.ok) {
         $('.npm-auto-toggle').each(function() {
           const container = $(this).data('container');
-          console.log('  - Checking container:', container);
-          const containerState = data.state[container];
-          console.log('    - State found:', containerState);
-          const isChecked = containerState?.enabled || false;
-          console.log('    - isChecked:', isChecked);
+          const isChecked = data.state[container]?.enabled || false;
           $(this).prop('checked', isChecked);
           const switchBg = $(this).next('.npm-auto-switch-background');
           if (isChecked) {

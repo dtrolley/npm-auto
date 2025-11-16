@@ -69,6 +69,9 @@ function set_toggle($data) {
         $state = json_decode(file_get_contents($STATE_FILE), true);
     }
 
+    if (!isset($state[$container])) {
+        $state[$container] = [];
+    }
     $state[$container]['enabled'] = $enabled;
 
     if (file_put_contents($STATE_FILE, json_encode($state, JSON_PRETTY_PRINT))) {

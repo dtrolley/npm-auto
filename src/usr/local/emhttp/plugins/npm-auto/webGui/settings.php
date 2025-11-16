@@ -99,6 +99,7 @@ switch ($action) {
         get_state();
         break;
     case 'setToggle':
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Entering setToggle case.\n", FILE_APPEND);
         $json = file_get_contents('php://input');
         $data = json_decode($json, true);
         set_toggle($data);

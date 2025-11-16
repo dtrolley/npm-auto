@@ -42,6 +42,7 @@
 
   function updateToggles() {
     $.get('/plugins/npm-auto/webGui/settings.php?action=getState', function(data) {
+      console.log('updateToggles received data:', data);
       if (data.ok) {
         $('.npm-auto-toggle').each(function() {
           const container = $(this).data('container');

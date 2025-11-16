@@ -42,12 +42,24 @@ function save_settings($data) {
 
 function get_state() {
     global $STATE_FILE;
+    file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Inside get_state function.\n", FILE_APPEND);
+    $state = [];
     if (file_exists($STATE_FILE)) {
-        $state = json_decode(file_get_contents($STATE_FILE), true);
-        echo json_encode(['ok' => true, 'state' => $state]);
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "State file exists, reading it.\n", FILE_APPEND);
+        $stateJson = file_get_contents($STATE_FILE);
+        $state = json_decode($stateJson, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $error = "Error decoding state.json in get_state: " . json_last_error_msg();
+            file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Error: $error\n", FILE_APPEND);
+            $state = []; // Return empty state on error
+        }
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "State read from file: " . print_r($state, true) . "\n", FILE_APPEND);
     } else {
-        echo json_encode(['ok' => true, 'state' => []]);
+        file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "State file does not exist, returning empty state.\n", FILE_APPEND);
     }
+    $response = ['ok' => true, 'state' => $state];
+    file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Returning state: " . json_encode($response) . "\n", FILE_APPEND);
+    echo json_encode($response);
 }
 
 function set_toggle($data) {

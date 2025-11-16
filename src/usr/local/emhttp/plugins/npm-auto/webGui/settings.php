@@ -6,11 +6,11 @@
 //==============================================================================
 
 //--- Debugging ---#
-file_put_contents("/tmp/npm-auto-debug.log", "--- New Request ---\n", FILE_APPEND);
-file_put_contents("/tmp/npm-auto-debug.log", "Time: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
-file_put_contents("/tmp/npm-auto-debug.log", "Request: " . print_r($_REQUEST, true) . "\n", FILE_APPEND);
-file_put_contents("/tmp/npm-auto-debug.log", "Post: " . print_r($_POST, true) . "\n", FILE_APPEND);
-file_put_contents("/tmp/npm-auto-debug.log", "Input: " . file_get_contents('php://input') . "\n", FILE_APPEND);
+file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "--- New Request ---\n", FILE_APPEND);
+file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Time: " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
+file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Request: " . print_r($_REQUEST, true) . "\n", FILE_APPEND);
+file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Post: " . print_r($_POST, true) . "\n", FILE_APPEND);
+file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Input: " . file_get_contents('php://input') . "\n", FILE_APPEND);
 
 //--- Configuration ---#
 $BASE = "/boot/config/plugins/npm-auto";
@@ -41,11 +41,41 @@ function save_settings($data) {
 }
 
 function get_state() {
-    echo json_encode(['ok' => true, 'state' => ['Compose-Craft' => ['enabled' => true]]]);
+    global $STATE_FILE;
+    if (file_exists($STATE_FILE)) {
+        $state = json_decode(file_get_contents($STATE_FILE), true);
+        echo json_encode(['ok' => true, 'state' => $state]);
+    } else {
+        echo json_encode(['ok' => true, 'state' => []]);
+    }
 }
 
 function set_toggle($data) {
-    echo json_encode(['ok' => true]);
+    global $STATE_FILE;
+    $container = $data['container'];
+    $enabled = $data['enabled'];
+
+    if (!file_exists(dirname($STATE_FILE))) {
+        mkdir(dirname($STATE_FILE), 0755, true);
+    }
+
+    if (!is_writable(dirname($STATE_FILE))) {
+        echo json_encode(['ok' => false, 'error' => 'State file directory is not writable.']);
+        return;
+    }
+
+    $state = [];
+    if (file_exists($STATE_FILE)) {
+        $state = json_decode(file_get_contents($STATE_FILE), true);
+    }
+
+    $state[$container]['enabled'] = $enabled;
+
+    if (file_put_contents($STATE_FILE, json_encode($state, JSON_PRETTY_PRINT))) {
+        echo json_encode(['ok' => true]);
+    } else {
+        echo json_encode(['ok' => false, 'error' => 'Failed to write to state file.']);
+    }
 }
 
 //--- Main logic ---#

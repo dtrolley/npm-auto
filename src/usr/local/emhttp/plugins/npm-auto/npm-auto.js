@@ -46,7 +46,11 @@
       if (data.ok) {
         $('.npm-auto-toggle').each(function() {
           const container = $(this).data('container');
-          const isChecked = data.state[container]?.enabled || false;
+          console.log('  - Checking container:', container);
+          const containerState = data.state[container];
+          console.log('    - State found:', containerState);
+          const isChecked = containerState?.enabled || false;
+          console.log('    - isChecked:', isChecked);
           $(this).prop('checked', isChecked);
           const switchBg = $(this).next('.npm-auto-switch-background');
           if (isChecked) {

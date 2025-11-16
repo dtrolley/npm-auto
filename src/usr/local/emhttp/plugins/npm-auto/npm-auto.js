@@ -24,18 +24,21 @@
     // Add toggle switches
     $('table#docker_containers tbody tr').each(function() {
       if ($(this).find('.npm-auto-toggle').length === 0) {
-        const containerId = $(this).attr('id').replace('ct-', '');
-        const newCell = `
-          <td class="ct-autostart">
-            <input type="checkbox" class="autostart npm-auto-toggle" data-container="${containerId}" style="display: none;">
-            <div class="npm-auto-switch-background">
-              <div class="npm-auto-switch-button"></div>
-            </div>
-            <span class="npm-auto-switch-label off">Off</span>
-            <span class="npm-auto-switch-label on" style="display: none;">On</span>
-          </td>
-        `;
-        $(this).find('td').eq(versionIndex).after(newCell);
+        const rowId = $(this).attr('id');
+        if (rowId && rowId.startsWith('ct-')) {
+          const containerId = rowId.replace('ct-', '');
+          const newCell = `
+            <td class="ct-autostart">
+              <input type="checkbox" class="autostart npm-auto-toggle" data-container="${containerId}" style="display: none;">
+              <div class="npm-auto-switch-background">
+                <div class="npm-auto-switch-button"></div>
+              </div>
+              <span class="npm-auto-switch-label off">Off</span>
+              <span class="npm-auto-switch-label on" style="display: none;">On</span>
+            </td>
+          `;
+          $(this).find('td').eq(versionIndex).after(newCell);
+        }
       }
     });
   }

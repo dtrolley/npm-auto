@@ -99,4 +99,3 @@ switch ($action) {
     default:
         echo json_encode(['ok' => false, 'error' => 'Unknown action.']);
 }
-

@@ -19,17 +19,54 @@ function write_log($message) {
 }
 
 function get_settings() {
-    $default_settings = [
-        'npm_enabled' => 'on',
-        'npm_host' => '192.168.8.8',
-        'npm_port' => '81',
-        'npm_user' => 'admin@example.com',
-        'npm_pass' => 'changeme',
-        'default_domain' => 'example.com',
-        'label_overrides' => 'off'
-    ];
-    write_log("get_settings called, returning default settings");
-    echo json_encode(['ok' => true, 'settings' => $default_settings]);
+    global $SETTINGS_FILE;
+    write_log("get_settings called");
+    if (file_exists($SETTINGS_FILE)) {
+        $settings = parse_ini_file($SETTINGS_FILE);
+        write_log("get_settings: settings found: " . print_r($settings, true));
+        echo json_encode(['ok' => true, 'settings' => $settings]);
+    } else {
+        write_log("get_settings: settings file not found");
+        echo json_encode(['ok' => false, 'error' => 'Settings file not found.']);
+    }
+}
+
+function save_settings($data) {
+    global $SETTINGS_FILE;
+    write_log("save_settings called with data: " . print_r($data, true));
+    
+    if (!is_writable(dirname($SETTINGS_FILE))) {
+        if (!mkdir(dirname($SETTINGS_FILE), 0755, true)) {
+            $error = "Settings directory does not exist and could not be created.";
+            write_log("save_settings: error: " . $error);
+            echo json_encode(['ok' => false, 'error' => $error]);
+            return;
+        }
+    }
+
+    if (file_exists($SETTINGS_FILE) && !is_writable($SETTINGS_FILE)) {
+        $error = "Settings file is not writable.";
+        write_log("save_settings: error: " . $error);
+        echo json_encode(['ok' => false, 'error' => $error]);
+        return;
+    }
+
+    unset($data['action']);
+    unset($data['csrf_token']);
+
+    $out = "";
+    foreach ($data as $key => $value) {
+        $out .= "$key = \"$value\"\n";
+    }
+
+    if (file_put_contents($SETTINGS_FILE, $out) === false) {
+        $error = "Failed to write to settings file.";
+        write_log("save_settings: error: " . $error);
+        echo json_encode(['ok' => false, 'error' => $error]);
+    } else {
+        write_log("save_settings: successfully wrote to settings file.");
+        echo json_encode(['ok' => true]);
+    }
 }
 
 function get_state() {
@@ -95,6 +132,9 @@ write_log("Request received with action: " . $action);
 switch ($action) {
     case 'getSettings':
         get_settings();
+        break;
+    case 'saveSettings':
+        save_settings($_POST);
         break;
     case 'getState':
         get_state();

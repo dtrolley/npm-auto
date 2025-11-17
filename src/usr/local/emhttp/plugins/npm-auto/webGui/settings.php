@@ -9,7 +9,7 @@
 $BASE = "/boot/config/plugins/npm-auto";
 $SETTINGS_FILE = "{$BASE}/var/settings.cfg";
 $STATE_FILE = "{$BASE}/var/state.json";
-$DEBUG_LOG_FILE = "/tmp/npm-auto-settings-debug.log";
+$DEBUG_LOG_FILE = "{$BASE}/var/npm-auto-settings-debug.log";
 
 //--- Functions ---#
 function write_log($message) {

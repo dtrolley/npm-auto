@@ -163,26 +163,28 @@ function set_toggle($data) {
 }
 
 //--- Main logic ---#
-header('Content-Type: application/json');
+if (isset($_REQUEST['action'])) {
+    header('Content-Type: application/json');
 
-$action = $_REQUEST['action'] ?? '';
-write_log("Request received with action: " . $action);
+    $action = $_REQUEST['action'];
+    write_log("Request received with action: " . $action);
 
-switch ($action) {
-    case 'getSettings':
-        get_settings();
-        break;
-    case 'saveSettings':
-        save_settings($_POST);
-        break;
-    case 'getState':
-        get_state();
-        break;
-    case 'setToggle':
-        set_toggle($_POST);
-        break;
-    default:
-        write_log("Unknown action: " . $action);
-        echo json_encode(['ok' => false, 'error' => 'Unknown action.']);
+    switch ($action) {
+        case 'getSettings':
+            get_settings();
+            break;
+        case 'saveSettings':
+            save_settings($_POST);
+            break;
+        case 'getState':
+            get_state();
+            break;
+        case 'setToggle':
+            set_toggle($_POST);
+            break;
+        default:
+            write_log("Unknown action: " . $action);
+            echo json_encode(['ok' => false, 'error' => 'Unknown action.']);
+    }
 }
 

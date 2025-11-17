@@ -107,7 +107,7 @@
 
     $.post({
       url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
-      data: { container, enabled, csrf_token: csrfToken }
+      data: { container, enabled }
     });
   });
 })();

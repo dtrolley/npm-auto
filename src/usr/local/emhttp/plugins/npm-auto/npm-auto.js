@@ -105,28 +105,4 @@
       data: { container, enabled, csrf_token: csrfToken }
     });
   });
-
-  // Handle settings form submission
-  $(document).on('submit', '#npm-auto-settings-form', function(e) {
-    e.preventDefault();
-    const formData = $(this).serialize();
-    const csrfToken = $('input[name="csrf_token"]').val();
-
-    $.post({
-      url: '/plugins/npm-auto/webGui/settings.php?action=saveSettings',
-      data: formData + '&csrf_token=' + csrfToken,
-      success: function(data) {
-        if (data.ok) {
-          // Optionally, show a success message
-          alert('Settings saved successfully!');
-        } else {
-          // Show a detailed error message
-          alert('Error saving settings: ' + data.error);
-        }
-      },
-      error: function() {
-        alert('An unexpected error occurred while saving settings.');
-      }
-    });
-  });
 })();

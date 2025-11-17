@@ -23,7 +23,7 @@
 
     // Add toggle switches
     $('table#docker_containers tbody tr:has(td.ct-name)').each(function() {
-      if ($(this).find('.npm-auto-toggle').length === 0) {
+      if ($(this).find('.npm-auto-toggle').length === 0 && $(this).attr('id')) {
         const containerId = $(this).attr('id').replace('ct-', '');
         const newCell = `
           <td class="ct-autostart">

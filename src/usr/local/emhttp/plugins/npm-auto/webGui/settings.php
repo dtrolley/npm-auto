@@ -5,6 +5,8 @@
 // This script handles the backend logic for the npm-auto settings page.
 //==============================================================================
 
+file_put_contents("/mnt/user/gemini/npm-auto-debug.log", "Request received: " . print_r($_REQUEST, true) . "\n", FILE_APPEND);
+
 //--- Configuration ---#
 $BASE = "/boot/config/plugins/npm-auto";
 $SETTINGS_FILE = "{$BASE}/var/settings.cfg";

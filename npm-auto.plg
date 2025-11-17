@@ -6,8 +6,8 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2025.11.17-1">
-<!ENTITY md5 "a1a89766dee005a91f942de9fff49ade">
+<!ENTITY version "2025.11.17-2">
+<!ENTITY md5 "abccac6583a18bf0a5ad6652f694f7ea">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">

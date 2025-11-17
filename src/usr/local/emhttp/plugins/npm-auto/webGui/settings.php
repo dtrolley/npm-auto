@@ -9,36 +9,13 @@
 $BASE = "/boot/config/plugins/npm-auto";
 $SETTINGS_FILE = "{$BASE}/var/settings.cfg";
 $STATE_FILE = "{$BASE}/var/state.json";
-$DEBUG_LOG_FILE = "/mnt/user/gemini/npm-auto-debug.log";
+$DEBUG_LOG_FILE = "{$BASE}/var/npm-auto-settings-debug.log";
 
 //--- Functions ---#
 function write_log($message) {
     global $DEBUG_LOG_FILE;
-    $log_dir = dirname($DEBUG_LOG_FILE);
-
-    // Ensure the log directory exists
-    if (!file_exists($log_dir)) {
-        // Attempt to create the directory
-        if (!mkdir($log_dir, 0777, true)) {
-            // If directory creation fails, we can't log to the intended location.
-            // We can't echo an error here as it would break JSON response.
-            // The user will need to manually check permissions.
-            return;
-        }
-    }
-
-    // Check if the log directory is writable
-    if (!is_writable($log_dir)) {
-        // If not writable, we can't log.
-        return;
-    }
-
     $timestamp = date("Y-m-d H:i:s");
-    // Attempt to write to the log file
-    if (file_put_contents($DEBUG_LOG_FILE, "[$timestamp] " . print_r($message, true) . "\n", FILE_APPEND) === false) {
-        // If file_put_contents fails, we can't log.
-        return;
-    }
+    file_put_contents($DEBUG_LOG_FILE, "[$timestamp] " . print_r($message, true) . "\n", FILE_APPEND);
 }
 
 function get_settings() {
@@ -58,36 +35,20 @@ function save_settings($data) {
     global $SETTINGS_FILE;
     write_log("save_settings called with data: " . print_r($data, true));
     
-    $settings_dir = dirname($SETTINGS_FILE);
-
-    if (!file_exists($settings_dir)) {
-        if (!mkdir($settings_dir, 0755, true)) {
-            $error = "Settings directory '{$settings_dir}' does not exist and could not be created. Please check permissions.";
+    if (!is_writable(dirname($SETTINGS_FILE))) {
+        if (!mkdir(dirname($SETTINGS_FILE), 0755, true)) {
+            $error = "Settings directory does not exist and could not be created.";
             write_log("save_settings: error: " . $error);
             echo json_encode(['ok' => false, 'error' => $error]);
             return;
         }
     }
 
-    if (!is_writable($settings_dir)) {
-        $error = "Settings directory '{$settings_dir}' is not writable. Please check permissions.";
-        write_log("save_settings: error: " . $error);
-        echo json_encode(['ok' => false, 'error' => $error]);
-        return;
-    }
-
     if (file_exists($SETTINGS_FILE) && !is_writable($SETTINGS_FILE)) {
-        $error = "Settings file '{$SETTINGS_FILE}' is not writable. Please check permissions.";
+        $error = "Settings file is not writable.";
         write_log("save_settings: error: " . $error);
         echo json_encode(['ok' => false, 'error' => $error]);
         return;
-    }
-
-    $checkboxes = ['npm_enabled', 'label_overrides'];
-    foreach ($checkboxes as $checkbox) {
-        if (!isset($data[$checkbox])) {
-            $data[$checkbox] = 'off';
-        }
     }
 
     unset($data['action']);
@@ -99,7 +60,7 @@ function save_settings($data) {
     }
 
     if (file_put_contents($SETTINGS_FILE, $out) === false) {
-        $error = "Failed to write to settings file '{$SETTINGS_FILE}'. Please check permissions.";
+        $error = "Failed to write to settings file.";
         write_log("save_settings: error: " . $error);
         echo json_encode(['ok' => false, 'error' => $error]);
     } else {

@@ -3,9 +3,27 @@ Title="npm-auto"
 Icon="folder-open-o"
 ---
 <?php
-require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings.php");
+function save_settings($data) {
+    $out = "";
+    $checkboxes = ['npm_enabled', 'label_overrides'];
+    foreach ($checkboxes as $checkbox) {
+        if (!isset($data[$checkbox])) {
+            $data[$checkbox] = 'off';
+        }
+    }
+    foreach ($data as $key => $value) {
+        if ($key === '#apply') continue;
+        $out .= "$key = \"$value\"\n";
+    }
+    file_put_contents("/boot/config/plugins/npm-auto/var/settings.cfg", $out);
+}
 
-$settings = file_exists($SETTINGS_FILE) ? parse_ini_file($SETTINGS_FILE) : [];
+if ($_POST) {
+    save_settings($_POST);
+}
+
+$settings_file = "/boot/config/plugins/npm-auto/var/settings.cfg";
+$settings = file_exists($settings_file) ? parse_ini_file($settings_file) : [];
 
 require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");
 ?>

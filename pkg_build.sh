@@ -23,8 +23,12 @@ FILENAME="$ARCHIVE_DIR/$PKG_NAME-$VERSION.txz"
 # Create the package
 mkdir -p "$TMP_DIR"
 cp -r "$CWD/src/." "$TMP_DIR"
+find "$TMP_DIR" -name ".DS_Store" -delete
+find "$TMP_DIR" -name "._*" -delete
 chmod +x "$TMP_DIR/usr/local/emhttp/plugins/npm-auto/webGui/settings.php"
-(cd "$TMP_DIR" && tar -cJf "$FILENAME" .)
+chmod +x "$TMP_DIR"/usr/local/emhttp/plugins/npm-auto/scripts/*.sh
+chmod +x "$TMP_DIR"/usr/local/emhttp/plugins/npm-auto/event/*
+(cd "$TMP_DIR" && COPYFILE_DISABLE=1 tar -cJf "$FILENAME" .)
 
 # Update the .plg file
 MD5=$(md5sum "$FILENAME" | awk '{print $1}')

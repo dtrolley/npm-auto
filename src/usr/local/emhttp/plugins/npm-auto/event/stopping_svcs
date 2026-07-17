@@ -1,0 +1,3 @@
+#!/bin/bash
+# Unraid event: services stopping (array stop) - stop the npm-auto daemon.
+/usr/local/emhttp/plugins/npm-auto/scripts/npm-auto-service.sh stop

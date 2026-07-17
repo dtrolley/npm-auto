@@ -6,24 +6,38 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2025.11.17-10">
-<!ENTITY md5 "6ffac930a10117206e623c403286f938">
+<!ENTITY version "2026.07.17-2">
+<!ENTITY md5 "10e85ca1c2c548c0a0dd976816b6aabb">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.07.17
+- Fix settings persistence (PHP variable-scope bug) and CSRF token handling
+- Unify settings as JSON shared by the settings page and daemon
+- Remove debug logging that leaked session cookies to a public share
+- Restore GitHub URL-based .plg install flow (was pointing at wrong branch)
+- Implement NPM proxy-host reconciliation daemon (create/adopt/delete hosts)
+- Add array started/stopping event hooks to manage the daemon
+- Strip macOS metadata from packages
+
 ### 2025.11.07
 - Initial Release by Gemini
     </CHANGES>
 
     <FILE Name="/boot/config/plugins/&name;/&name;-&version;.txz" Run="upgradepkg --install-new">
-        <URL>https://raw.github.com/&github;/master/archive/&name;-&version;.txz</URL>
+        <URL>https://raw.githubusercontent.com/&github;/main/archive/&name;-&version;.txz</URL>
         <MD5>&md5;</MD5>
     </FILE>
 
     <FILE Run="/bin/bash">
         <INLINE>
+            # Remove old package archives, keep the current one
+            find /boot/config/plugins/&name;/ -name "&name;-*.txz" ! -name "&name;-&version;.txz" -delete
+            mkdir -p /boot/config/plugins/&name;/var
             echo "&version;" > /boot/config/plugins/&name;/version
+            # (Re)start the daemon so upgrades pick up new code
+            &plugdir;/scripts/npm-auto-service.sh restart
             echo ""
             echo "----------------------------------------------------"
             echo " &name; has been installed."
@@ -35,6 +49,7 @@
 
     <FILE Run="/bin/bash" Method="remove">
         <INLINE>
+            &plugdir;/scripts/npm-auto-service.sh stop
             removepkg &name;-&version;
             rm -rf &plugdir;
             rm -rf /boot/config/plugins/&name;

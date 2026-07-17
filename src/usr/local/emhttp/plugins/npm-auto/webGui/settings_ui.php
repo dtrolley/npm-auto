@@ -42,5 +42,3 @@
   </form>
 </div>
 
-<script src="/plugins/npm-auto/npm-auto.js"></script>
-

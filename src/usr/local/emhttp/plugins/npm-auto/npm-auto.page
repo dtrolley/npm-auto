@@ -3,38 +3,55 @@ Title="npm-auto"
 Icon="folder-open-o"
 ---
 <?php
-function save_settings($data) {
-    $out = "";
-    $checkboxes = ['npm_enabled', 'label_overrides'];
-    foreach ($checkboxes as $checkbox) {
-        if (!isset($data[$checkbox])) {
-            $data[$checkbox] = 'off';
-        }
-    }
-    foreach ($data as $key => $value) {
-        if ($key === '#apply') continue;
-        $out .= "$key = \"$value\"\n";
-    }
-    file_put_contents("/boot/config/plugins/npm-auto/var/settings.cfg", $out);
-}
+$settings_file = "/boot/config/plugins/npm-auto/var/settings.json";
+
+// Form field name => canonical settings key. Only these are ever persisted.
+$field_map = [
+    'npm_enabled'     => 'NPM_ENABLED',
+    'npm_host'        => 'NPM_HOST',
+    'npm_port'        => 'NPM_PORT',
+    'npm_user'        => 'NPM_USER',
+    'npm_pass'        => 'NPM_PASS',
+    'default_domain'  => 'DEFAULT_DOMAIN',
+    'label_overrides' => 'LABEL_OVERRIDES',
+];
+$checkboxes = ['npm_enabled', 'label_overrides'];
 
 if ($_POST) {
-    save_settings($_POST);
+    $settings = [];
+    foreach ($field_map as $field => $key) {
+        if (in_array($field, $checkboxes)) {
+            $settings[$key] = isset($_POST[$field]);
+        } else {
+            $settings[$key] = (string)($_POST[$field] ?? '');
+        }
+    }
+    $dir = dirname($settings_file);
+    if (!is_dir($dir)) mkdir($dir, 0755, true);
+    file_put_contents($settings_file, json_encode($settings, JSON_PRETTY_PRINT));
 }
 
-$settings_file = "/boot/config/plugins/npm-auto/var/settings.cfg";
-$settings = file_exists($settings_file) ? parse_ini_file($settings_file) : [];
+$settings = [];
+if (file_exists($settings_file)) {
+    $decoded = json_decode(file_get_contents($settings_file), true);
+    if (is_array($decoded)) $settings = $decoded;
+}
+
+// Map canonical keys back to form field names for the UI.
+$form_values = [];
+foreach ($field_map as $field => $key) {
+    if (array_key_exists($key, $settings)) $form_values[$field] = $settings[$key];
+}
 
 require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");
 ?>
 <script>
   $(document).ready(function() {
-    const settings = <?= json_encode($settings) ?>;
-    console.log('Settings:', settings);
+    const settings = <?= json_encode($form_values) ?>;
     for (const [key, value] of Object.entries(settings)) {
       const input = $(`#${key}`);
       if (input.is(':checkbox')) {
-        input.prop('checked', value === 'on');
+        input.prop('checked', value === true);
       } else {
         input.val(value);
       }

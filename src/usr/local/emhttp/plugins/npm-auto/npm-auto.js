@@ -1,14 +1,14 @@
 //==============================================================================
 // npm-auto.js
 //
-// This script is injected into the Docker tab of the Unraid UI and adds a
-// toggle switch to each container to enable or disable npm-auto.
+// Injected into the Docker tab of the Unraid UI. Adds an "Auto Proxy" toggle
+// to each container row to enable or disable npm-auto for that container.
 //==============================================================================
 
 (function() {
   let dockerTable;
 
-  //--- Functions ---#
+  //--- Functions ---
   function addColumn() {
     const versionHeader = $('table#docker_containers thead th:contains("Version")');
     if (versionHeader.length === 0) {
@@ -23,8 +23,9 @@
 
     // Add toggle switches
     $('table#docker_containers tbody tr').each(function() {
+      const container = $(this).find('.ct-name .appname').text().trim();
+      if (!container) return; // not a container row
       if ($(this).find('.npm-auto-toggle').length === 0) {
-        const container = $(this).find('td:first-child a').text();
         const newCell = `
           <td class="ct-autostart">
             <input type="checkbox" class="autostart npm-auto-toggle" data-container="${container}" style="display: none;">
@@ -40,39 +41,43 @@
     });
   }
 
+  function renderToggle(checkbox, isChecked) {
+    checkbox.prop('checked', isChecked);
+    const switchBg = checkbox.next('.npm-auto-switch-background');
+    switchBg.toggleClass('checked', isChecked);
+    switchBg.siblings('.on').toggle(isChecked);
+    switchBg.siblings('.off').toggle(!isChecked);
+  }
+
   function updateToggles() {
-    $.get('/plugins/npm-auto/webGui/settings.php?action=getState', function(data) {
-      console.log('updateToggles received data:', data);
-      if (data.ok) {
+    $.ajax({
+      url: '/plugins/npm-auto/webGui/settings.php',
+      data: { action: 'getState', v: Date.now() },
+      dataType: 'json',
+      success: function(data) {
+        if (!data.ok) {
+          console.error('npm-auto getState error:', data.error);
+          return;
+        }
         $('.npm-auto-toggle').each(function() {
           const container = $(this).data('container');
-          console.log('  - Checking container:', container);
-          const containerState = data.state[container];
-          console.log('    - State found:', containerState);
-          const isChecked = containerState?.enabled || false;
-          console.log('    - isChecked:', isChecked);
-          $(this).prop('checked', isChecked);
-          const switchBg = $(this).next('.npm-auto-switch-background');
-          if (isChecked) {
-            switchBg.addClass('checked');
-            switchBg.siblings('.on').show();
-            switchBg.siblings('.off').hide();
-          } else {
-            switchBg.removeClass('checked');
-            switchBg.siblings('.on').hide();
-            switchBg.siblings('.off').show();
-          }
+          const isChecked = data.state[container]?.enabled || false;
+          renderToggle($(this), isChecked);
         });
+      },
+      error: function(jqXHR, textStatus, errorThrown) {
+        console.error('npm-auto getState AJAX error:', textStatus, errorThrown, jqXHR.responseText);
       }
     });
   }
 
-  //--- Main logic ---#
+  //--- Main logic ---
   const observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
       if (mutation.addedNodes.length) {
         observer.disconnect();
         addColumn();
+        updateToggles();
         observer.observe(dockerTable.get(0), {
           childList: true,
           subtree: true
@@ -98,16 +103,23 @@
     const checkbox = $(this).prev('.npm-auto-toggle');
     const container = checkbox.data('container');
     const enabled = !checkbox.prop('checked');
-    const csrfToken = $('input[name="csrf_token"]').val();
 
-    checkbox.prop('checked', enabled);
-    $(this).toggleClass('checked');
-    $(this).siblings('.on').toggle(enabled);
-    $(this).siblings('.off').toggle(!enabled);
+    renderToggle(checkbox, enabled);
 
-    $.post({
-      url: '/plugins/npm-auto/webGui/settings.php?action=setToggle',
-      data: { container, enabled }
-    });
+    const payload = { action: 'setToggle', container, enabled };
+    // Unraid defines a global csrf_token on every webGui page.
+    if (typeof csrf_token !== 'undefined') payload.csrf_token = csrf_token;
+
+    $.post('/plugins/npm-auto/webGui/settings.php', payload, null, 'json')
+      .done(function(data) {
+        if (!data.ok) {
+          console.error('npm-auto setToggle error:', data.error);
+          renderToggle(checkbox, !enabled); // roll back on failure
+        }
+      })
+      .fail(function(jqXHR, textStatus, errorThrown) {
+        console.error('npm-auto setToggle AJAX error:', textStatus, errorThrown, jqXHR.responseText);
+        renderToggle(checkbox, !enabled); // roll back on failure
+      });
   });
 })();

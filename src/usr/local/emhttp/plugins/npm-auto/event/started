@@ -1,0 +1,3 @@
+#!/bin/bash
+# Unraid event: array started - launch the npm-auto daemon.
+/usr/local/emhttp/plugins/npm-auto/scripts/npm-auto-service.sh start

@@ -56,6 +56,17 @@ foreach ($field_map as $field => $key) {
     if (array_key_exists($key, $settings)) $form_values[$field] = $settings[$key];
 }
 
+// Pre-fill sensible defaults for a fresh install: NPM ships OOTB on the
+// Unraid host at port 81. Both remain fully customizable.
+if (($form_values['npm_host'] ?? '') === '') {
+    if (preg_match('/src (\S+)/', shell_exec("ip route get 1 2>/dev/null") ?? '', $m)) {
+        $form_values['npm_host'] = $m[1];
+    }
+}
+if (($form_values['npm_port'] ?? '') === '') {
+    $form_values['npm_port'] = '81';
+}
+
 require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");
 ?>
 <script>

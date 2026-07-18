@@ -6,12 +6,19 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.07.17-9">
-<!ENTITY md5 "1ed254d8329ca221c7e69b024ef518ac">
+<!ENTITY version "2026.07.18">
+<!ENTITY md5 "fefab391757aff281e8a09bc360e21b2">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.07.18
+- Settings pre-fill for fresh installs: NPM host defaults to the Unraid
+  host's detected LAN IP, port defaults to 81 (both customizable)
+- Enforce forward host on managed entries: a host LAN IP change now
+  bulk-updates every managed proxy host automatically (re-detected each
+  reconcile cycle, no daemon restart needed)
+
 ### 2026.07.17c
 - Strict adoption: existing entries are adopted only when domain AND forward
   target both match; conflicts reject the toggle with a specific error

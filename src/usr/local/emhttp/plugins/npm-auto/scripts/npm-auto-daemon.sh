@@ -335,10 +335,15 @@ reconcile_managed_host() {
     live=$(host_live "$id" | jq -c '.enabled = true')
   fi
 
-  # Enforce desired domain, port, and certificate on every managed host
+  # Enforce desired domain, forward target, and certificate on every managed
+  # host. forward_host enforcement is what bulk-updates all managed entries
+  # if the Unraid host's LAN IP ever changes.
   local drift=""
   if [ "$(echo "$live" | jq -r --arg d "$domain" '.domain_names == [$d]')" != "true" ]; then
     drift=".domain_names = [\"$domain\"]"
+  fi
+  if [ "$(echo "$live" | jq -r '.forward_host')" != "$FORWARD_HOST" ]; then
+    drift="${drift:+$drift | }.forward_host = \"$FORWARD_HOST\""
   fi
   if [ "$(echo "$live" | jq -r '.forward_port')" != "$port" ]; then
     drift="${drift:+$drift | }.forward_port = $port"
@@ -466,9 +471,13 @@ main() {
       continue
     fi
 
-    if [ -z "$FORWARD_HOST" ]; then
-      FORWARD_HOST=$(ip route get 1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -n1)
+    # Re-detect each cycle so a host IP change propagates to all managed
+    # entries via drift enforcement without a daemon restart.
+    detected=$(ip route get 1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -n1)
+    if [ -z "$detected" ]; then
       [ -n "$FORWARD_HOST" ] || { log "Cannot determine host LAN IP; retrying"; sleep "$RECONCILE_INTERVAL"; continue; }
+    elif [ "$detected" != "$FORWARD_HOST" ]; then
+      FORWARD_HOST=$detected
       log "Forwarding target host: $FORWARD_HOST"
     fi
 

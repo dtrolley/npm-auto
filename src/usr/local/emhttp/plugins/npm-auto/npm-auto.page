@@ -15,9 +15,10 @@ $field_map = [
     'npm_pass'          => 'NPM_PASS',
     'default_domain'    => 'DEFAULT_DOMAIN',
     'label_overrides'   => 'LABEL_OVERRIDES',
+    'auto_ssl'          => 'AUTO_SSL',
     'toggle_off_action' => 'TOGGLE_OFF_ACTION',
 ];
-$checkboxes = ['npm_enabled', 'label_overrides'];
+$checkboxes = ['npm_enabled', 'label_overrides', 'auto_ssl'];
 
 if ($_POST) {
     $settings = [];

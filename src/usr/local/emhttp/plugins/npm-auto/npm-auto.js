@@ -115,6 +115,11 @@
         if (!data.ok) {
           console.error('npm-auto setToggle error:', data.error);
           renderToggle(checkbox, !enabled); // roll back on failure
+          if (typeof swal === 'function') {
+            swal({ title: 'npm-auto', text: data.error, type: 'error' });
+          } else {
+            alert('npm-auto: ' + data.error);
+          }
         }
       })
       .fail(function(jqXHR, textStatus, errorThrown) {

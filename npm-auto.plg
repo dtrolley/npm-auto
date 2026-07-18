@@ -6,12 +6,20 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.07.17-7">
-<!ENTITY md5 "7891a1afc75ace9f3fc6881ea42f1937">
+<!ENTITY version "2026.07.17-9">
+<!ENTITY md5 "1ed254d8329ca221c7e69b024ef518ac">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.07.17c
+- Strict adoption: existing entries are adopted only when domain AND forward
+  target both match; conflicts reject the toggle with a specific error
+- Adopted hosts are fully managed thereafter (same policies as created ones)
+- New "Auto-attach matching SSL certificate" setting
+- Label override syntax (npm-auto.domain / npm-auto.port) documented on the
+  settings page
+
 ### 2026.07.17b
 - Auto-select an unexpired NPM certificate (exact or wildcard match) for new
   proxy hosts; force SSL when one is found

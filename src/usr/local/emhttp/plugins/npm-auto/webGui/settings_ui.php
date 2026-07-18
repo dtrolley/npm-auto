@@ -38,6 +38,11 @@
     </div>
 
     <div class="form-group">
+      <label for="auto_ssl">Auto-attach matching SSL certificate</label>
+      <input type="checkbox" id="auto_ssl" name="auto_ssl" checked>
+    </div>
+
+    <div class="form-group">
       <label for="toggle_off_action">When a toggle is switched off</label>
       <select id="toggle_off_action" name="toggle_off_action">
         <option value="keep">Keep - leave the NPM entry as-is</option>
@@ -52,15 +57,25 @@
     <input type="button" value="Done" onClick="done()">
   </form>
 
+  <h3>Container label overrides</h3>
+  <p>When Label Overrides is enabled, these Docker labels take priority over the derived values
+     (add them under a container's Extra Parameters, e.g. <code>-l npm-auto.port=8181</code>):</p>
+  <ul>
+    <li><code>npm-auto.domain</code> &mdash; full domain for this container (e.g. <code>media.example.com</code>);
+        default is <code>&lt;container-name&gt;.&lt;default-domain&gt;</code></li>
+    <li><code>npm-auto.port</code> &mdash; host port NPM forwards to (e.g. <code>8181</code>);
+        default is the port from the container's WebUI setting, else its lowest published port</li>
+  </ul>
+
   <h3>Managed proxy hosts</h3>
   <p>
-    Apply an action now to every proxy host the plugin currently manages.
-    Adopted (pre-existing) entries are never deleted &mdash; only released.
+    Apply an action now to every proxy host the plugin currently manages
+    (created and adopted entries are treated identically).
     Note: <em>uninstalling</em> the plugin never touches NPM; run a cleanup
     here first if you want one.
   </p>
   <input type="button" id="npm-auto-cleanup-disable" value="Disable all managed hosts">
-  <input type="button" id="npm-auto-cleanup-delete" value="Delete all plugin-created hosts">
+  <input type="button" id="npm-auto-cleanup-delete" value="Delete all managed hosts">
   <span id="npm-auto-cleanup-status"></span>
 </div>
 
@@ -101,7 +116,7 @@
       requestCleanup('disable', 'Disable every proxy host currently managed by npm-auto.');
     });
     $('#npm-auto-cleanup-delete').on('click', function() {
-      requestCleanup('delete', 'Delete every plugin-created proxy host from NPM (adopted entries are only released).');
+      requestCleanup('delete', 'Delete every proxy host currently managed by npm-auto (created and adopted alike).');
     });
   });
 </script>

@@ -6,9 +6,12 @@
 // Actions: getState, setToggle
 //==============================================================================
 
-$BASE         = "/boot/config/plugins/npm-auto";
-$STATE_FILE   = "{$BASE}/var/state.json";
-$CLEANUP_FILE = "{$BASE}/var/cleanup_request.json";
+$BASE           = "/boot/config/plugins/npm-auto";
+$STATE_FILE     = "{$BASE}/var/state.json";
+$CLEANUP_FILE   = "{$BASE}/var/cleanup_request.json";
+$SETTINGS_FILE  = "{$BASE}/var/settings.json";
+$MANAGED_FILE   = "{$BASE}/var/managed.json";
+$HOSTS_SNAPSHOT = "/var/run/npm-auto-hosts.json";  // published by the daemon
 
 function read_state() {
     global $STATE_FILE;
@@ -21,6 +24,109 @@ function get_state() {
     echo json_encode(['ok' => true, 'state' => read_state()]);
 }
 
+function docker_fmt($container, $fmt) {
+    $out = shell_exec("docker inspect --format " . escapeshellarg($fmt) . " "
+        . escapeshellarg($container) . " 2>/dev/null");
+    return trim($out ?? '');
+}
+
+function read_json_file($path) {
+    if (!file_exists($path)) return null;
+    $decoded = json_decode(file_get_contents($path), true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+// Mirror of the daemon's domain/port derivation. Returns [domain, port, error].
+function compute_target($container) {
+    global $SETTINGS_FILE;
+    $settings  = read_json_file($SETTINGS_FILE) ?? [];
+    $labels_on = ($settings['LABEL_OVERRIDES'] ?? true) === true;
+
+    $domain = '';
+    if ($labels_on) {
+        $d = docker_fmt($container, '{{ index .Config.Labels "npm-auto.domain" }}');
+        if ($d !== '' && $d !== '<no value>') $domain = $d;
+    }
+    if ($domain === '') {
+        $dd = trim($settings['DEFAULT_DOMAIN'] ?? '');
+        if ($dd === '') return [null, null, 'No default domain configured in npm-auto settings.'];
+        $sub = preg_replace('/[^a-z0-9-]/', '', strtolower($container));
+        $domain = "$sub.$dd";
+    }
+
+    $port = null;
+    if ($labels_on) {
+        $p = docker_fmt($container, '{{ index .Config.Labels "npm-auto.port" }}');
+        if ($p !== '' && $p !== '<no value>' && ctype_digit($p)) $port = (int)$p;
+    }
+    $ports = json_decode(docker_fmt($container, '{{json .NetworkSettings.Ports}}'), true) ?: [];
+    if ($port === null) {
+        $webui = docker_fmt($container, '{{ index .Config.Labels "net.unraid.docker.webui" }}');
+        if (preg_match('/\[PORT:(\d+)\]/', $webui, $m)) {
+            foreach ($ports as $key => $binds) {
+                if (is_array($binds) && strpos($key, $m[1] . '/') === 0 && isset($binds[0]['HostPort'])) {
+                    $port = (int)$binds[0]['HostPort'];
+                    break;
+                }
+            }
+        }
+    }
+    if ($port === null) {
+        $host_ports = [];
+        foreach ($ports as $binds) {
+            if (!is_array($binds)) continue;
+            foreach ($binds as $b) if (isset($b['HostPort'])) $host_ports[] = (int)$b['HostPort'];
+        }
+        if ($host_ports) $port = min($host_ports);
+    }
+    if ($port === null) return [null, null, "No published port found for $container (is it running?)."];
+
+    return [$domain, $port, null];
+}
+
+// Returns an error string if enabling this container would collide with a
+// pre-existing NPM entry, null if it is safe (or checkable data is missing).
+function find_conflict($container) {
+    global $HOSTS_SNAPSHOT, $MANAGED_FILE;
+
+    list($domain, $port, $err) = compute_target($container);
+    if ($err !== null) return $err;
+
+    $hosts = read_json_file($HOSTS_SNAPSHOT);
+    if ($hosts === null) return null; // daemon hasn't published yet; it re-checks anyway
+
+    $fh = '';
+    if (preg_match('/src (\S+)/', shell_exec("ip route get 1 2>/dev/null") ?? '', $m)) $fh = $m[1];
+    if ($fh === '') return null;
+
+    // Hosts we already manage are never conflicts (re-toggling our own entry)
+    $managed_ids = [];
+    foreach ((read_json_file($MANAGED_FILE) ?? []) as $entry) {
+        if (isset($entry['id'])) $managed_ids[] = (int)$entry['id'];
+    }
+
+    $domain_match = null;
+    $target_match = null;
+    foreach ($hosts as $h) {
+        if (in_array((int)($h['id'] ?? 0), $managed_ids)) continue;
+        $names = $h['domain_names'] ?? [];
+        if ($domain_match === null && in_array($domain, $names)) $domain_match = $h;
+        if ($target_match === null && ($h['forward_host'] ?? '') === $fh
+            && (int)($h['forward_port'] ?? 0) === $port) $target_match = $h;
+    }
+
+    if ($domain_match !== null) {
+        $t = ($domain_match['forward_host'] ?? '?') . ':' . ($domain_match['forward_port'] ?? '?');
+        if ($t === "$fh:$port") return null; // exact match: adoptable
+        return "Domain conflict: $domain is already proxied to $t by NPM entry #{$domain_match['id']}.";
+    }
+    if ($target_match !== null) {
+        $d = ($target_match['domain_names'][0] ?? '?');
+        return "Target conflict: $fh:$port is already proxied by $d (NPM entry #{$target_match['id']}).";
+    }
+    return null;
+}
+
 function set_toggle($data) {
     global $STATE_FILE;
     $container = trim($data['container'] ?? '');
@@ -29,6 +135,14 @@ function set_toggle($data) {
         return;
     }
     $enabled = ($data['enabled'] ?? '') === 'true';
+
+    if ($enabled) {
+        $conflict = find_conflict($container);
+        if ($conflict !== null) {
+            echo json_encode(['ok' => false, 'error' => $conflict]);
+            return;
+        }
+    }
 
     $dir = dirname($STATE_FILE);
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) {

@@ -11,11 +11,12 @@
 #   managed.json         - written ONLY by this daemon (hosts it manages)
 #   cleanup_request.json - written by webGui, consumed (deleted) by daemon
 #
-# managed.json entry: { id, domain, created, disabled }
-#   created=true  -> plugin made this host; fully owned (domain/port enforced)
-#   created=false -> adopted pre-existing host; never rewritten, only
-#                    enabled/disabled, and released if the domain no longer
-#                    corresponds to the container
+# managed.json entry: { id, domain, disabled }
+# Created and adopted hosts are treated identically once managed: domain,
+# port and certificate are enforced, and the toggle-off policy applies.
+# Adoption only happens when the existing entry's domain AND forward
+# target both already match what the plugin would configure; anything else
+# is a conflict (rejected up-front by the webGui, re-checked here).
 #==============================================================================
 
 #--- Configuration ---
@@ -47,6 +48,7 @@ load_settings() {
   DEFAULT_DOMAIN=$(setting DEFAULT_DOMAIN "")
   LABEL_OVERRIDES=$(setting LABEL_OVERRIDES "true")
   TOGGLE_OFF_ACTION=$(setting TOGGLE_OFF_ACTION "disable")   # keep|disable|delete
+  AUTO_SSL=$(setting AUTO_SSL "true")
   NPM_BASE_URL="http://$NPM_HOST:$NPM_PORT"
 }
 
@@ -136,12 +138,17 @@ npm_api() {
   return 1
 }
 
+HOSTS_SNAPSHOT="/var/run/npm-auto-hosts.json"
+
 refresh_caches() {
-  local h c
+  local h c tmp
   h=$(npm_api GET "/api/nginx/proxy-hosts") || return 1
   c=$(npm_api GET "/api/nginx/certificates") || c="[]"
   HOSTS_CACHE=$h
   CERTS_CACHE=$c
+  # Publish a snapshot so the webGui can conflict-check toggles synchronously
+  tmp=$(mktemp)
+  printf '%s' "$HOSTS_CACHE" > "$tmp" && mv "$tmp" "$HOSTS_SNAPSHOT" && chmod 644 "$HOSTS_SNAPSHOT"
   return 0
 }
 
@@ -242,22 +249,37 @@ container_domain() {
 #--- Proxy host management ---
 create_or_adopt() {
   # create_or_adopt <container> <domain> <port>
-  local c=$1 domain=$2 port=$3 payload resp id cert_id
+  # Adopt only on an exact domain + forward-target match; anything partial
+  # is a conflict (webGui rejects these up-front; this is the backstop).
+  local c=$1 domain=$2 port=$3 payload resp id cert_id match
 
-  # Adopt an existing NPM host that already serves this exact domain
-  id=$(echo "$HOSTS_CACHE" | jq -r --arg d "$domain" \
-    '[.[] | select(.domain_names | index($d))][0].id // empty')
-  if [ -n "$id" ]; then
-    log "Adopting existing proxy host #$id for $c ($domain) - will not rewrite it"
-    managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"created\": false, \"disabled\": false}"
-    # Re-enable it if it was disabled, but change nothing else
-    if [ "$(host_live "$id" | jq -r '.enabled')" = "false" ] || [ "$(host_live "$id" | jq -r '.enabled')" = "0" ]; then
-      host_update "$id" '.enabled = true' && log "Re-enabled adopted host #$id ($c)"
+  match=$(echo "$HOSTS_CACHE" | jq -c --arg d "$domain" \
+    '[.[] | select(.domain_names | index($d))][0] // empty')
+  if [ -n "$match" ]; then
+    id=$(echo "$match" | jq -r '.id')
+    if [ "$(echo "$match" | jq -r '.forward_host')" = "$FORWARD_HOST" ] \
+       && [ "$(echo "$match" | jq -r '.forward_port')" = "$port" ]; then
+      log "Adopting proxy host #$id for $c ($domain -> $FORWARD_HOST:$port) - now fully managed"
+      managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"disabled\": false}"
+      if [ "$(echo "$match" | jq -r '.enabled')" = "false" ] || [ "$(echo "$match" | jq -r '.enabled')" = "0" ]; then
+        host_update "$id" '.enabled = true' && log "Re-enabled adopted host #$id ($c)"
+      fi
+    else
+      log "CONFLICT: $c wants $domain -> $FORWARD_HOST:$port but NPM entry #$id already proxies $domain -> $(echo "$match" | jq -r '.forward_host'):$(echo "$match" | jq -r '.forward_port'); not touching it"
     fi
     return 0
   fi
 
-  cert_id=$(pick_cert "$domain")
+  # No domain match; refuse to create if the forward target is already proxied
+  match=$(echo "$HOSTS_CACHE" | jq -c --arg h "$FORWARD_HOST" --argjson p "$port" \
+    '[.[] | select(.forward_host == $h and .forward_port == $p)][0] // empty')
+  if [ -n "$match" ]; then
+    log "CONFLICT: $c wants target $FORWARD_HOST:$port but NPM entry #$(echo "$match" | jq -r '.id') ($(echo "$match" | jq -r '.domain_names[0]')) already proxies it; skipping"
+    return 1
+  fi
+
+  cert_id=""
+  [ "$AUTO_SSL" = "true" ] && cert_id=$(pick_cert "$domain")
 
   payload=$(jq -n --arg d "$domain" --arg h "$FORWARD_HOST" --argjson p "$port" \
     --argjson cert "${cert_id:-0}" '{
@@ -285,16 +307,15 @@ create_or_adopt() {
     return 1
   fi
   log "Created proxy host #$id: $domain -> $FORWARD_HOST:$port ($c)${cert_id:+ [cert #$cert_id, SSL forced]}"
-  managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"created\": true, \"disabled\": false}"
+  managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"disabled\": false}"
 }
 
 reconcile_managed_host() {
   # reconcile_managed_host <container> <managed-json> <domain> <port>
   # Bring an already-managed host in line with desired config (drift repair).
   local c=$1 m=$2 domain=$3 port=$4
-  local id created live cert_id
+  local id live cert_id
   id=$(echo "$m" | jq -r '.id')
-  created=$(echo "$m" | jq -r 'if has("created") then .created else true end')
   live=$(host_live "$id")
 
   if [ -z "$live" ]; then
@@ -314,17 +335,7 @@ reconcile_managed_host() {
     live=$(host_live "$id" | jq -c '.enabled = true')
   fi
 
-  if [ "$created" != "true" ]; then
-    # Adopted host: never rewrite. If the domain no longer corresponds to
-    # this container (e.g. DEFAULT_DOMAIN changed), release it untouched.
-    if [ "$(echo "$live" | jq -r --arg d "$domain" '.domain_names | index($d) != null')" != "true" ]; then
-      log "Adopted host #$id ($c) no longer matches computed domain $domain; releasing it untouched"
-      managed_del "$c"
-    fi
-    return 0
-  fi
-
-  # Plugin-created host: enforce desired domain, port, and certificate
+  # Enforce desired domain, port, and certificate on every managed host
   local drift=""
   if [ "$(echo "$live" | jq -r --arg d "$domain" '.domain_names == [$d]')" != "true" ]; then
     drift=".domain_names = [\"$domain\"]"
@@ -332,7 +343,7 @@ reconcile_managed_host() {
   if [ "$(echo "$live" | jq -r '.forward_port')" != "$port" ]; then
     drift="${drift:+$drift | }.forward_port = $port"
   fi
-  if [ "$(echo "$live" | jq -r '.certificate_id // 0')" = "0" ]; then
+  if [ "$AUTO_SSL" = "true" ] && [ "$(echo "$live" | jq -r '.certificate_id // 0')" = "0" ]; then
     cert_id=$(pick_cert "$domain")
     if [ -n "$cert_id" ]; then
       drift="${drift:+$drift | }.certificate_id = $cert_id | .ssl_forced = true"
@@ -342,7 +353,7 @@ reconcile_managed_host() {
   if [ -n "$drift" ]; then
     if host_update "$id" "$drift"; then
       log "Updated host #$id ($c): $drift"
-      managed_put "$c" "$(echo "$m" | jq -c --arg d "$domain" '.domain = $d | .created = true | .disabled = false')"
+      managed_put "$c" "$(echo "$m" | jq -c --arg d "$domain" '.domain = $d | .disabled = false')"
     fi
   fi
 }
@@ -350,9 +361,8 @@ reconcile_managed_host() {
 apply_off_action() {
   # apply_off_action <container> <managed-json> [action-override]
   local c=$1 m=$2 action=${3:-$TOGGLE_OFF_ACTION}
-  local id created
+  local id
   id=$(echo "$m" | jq -r '.id')
-  created=$(echo "$m" | jq -r 'if has("created") then .created else true end')
 
   case "$action" in
     keep)
@@ -370,14 +380,10 @@ apply_off_action() {
       fi
       ;;
     delete)
-      if [ "$created" = "true" ]; then
-        if npm_api DELETE "/api/nginx/proxy-hosts/$id" >/dev/null; then
-          log "Deleted host #$id ($c)"
-        else
-          log "Delete of host #$id ($c) failed; forgetting it anyway"
-        fi
+      if npm_api DELETE "/api/nginx/proxy-hosts/$id" >/dev/null; then
+        log "Deleted host #$id ($c)"
       else
-        log "Releasing adopted host #$id ($c) - delete policy never removes adopted entries via cleanup"
+        log "Delete of host #$id ($c) failed; forgetting it anyway"
       fi
       managed_del "$c"
       ;;

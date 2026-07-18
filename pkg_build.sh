@@ -28,7 +28,9 @@ find "$TMP_DIR" -name "._*" -delete
 chmod +x "$TMP_DIR/usr/local/emhttp/plugins/npm-auto/webGui/settings.php"
 chmod +x "$TMP_DIR"/usr/local/emhttp/plugins/npm-auto/scripts/*.sh
 chmod +x "$TMP_DIR"/usr/local/emhttp/plugins/npm-auto/event/*
-(cd "$TMP_DIR" && COPYFILE_DISABLE=1 tar -cJf "$FILENAME" .)
+# --uid/--gid 0: installpkg extracts to / as root; anything else chowns
+# /, /usr, ... to a bogus uid on the server (breaks sshd StrictModes, etc.)
+(cd "$TMP_DIR" && COPYFILE_DISABLE=1 tar -cJf "$FILENAME" --uid 0 --gid 0 --numeric-owner .)
 
 # Update the .plg file
 MD5=$(md5sum "$FILENAME" | awk '{print $1}')

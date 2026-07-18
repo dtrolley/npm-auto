@@ -99,16 +99,21 @@ function find_conflict($container) {
     if (preg_match('/src (\S+)/', shell_exec("ip route get 1 2>/dev/null") ?? '', $m)) $fh = $m[1];
     if ($fh === '') return null;
 
-    // Hosts we already manage are never conflicts (re-toggling our own entry)
-    $managed_ids = [];
-    foreach ((read_json_file($MANAGED_FILE) ?? []) as $entry) {
-        if (isset($entry['id'])) $managed_ids[] = (int)$entry['id'];
+    // Map NPM entry id -> owning container. Only THIS container's own entry
+    // is exempt from conflicts (re-toggling); entries managed for another
+    // container are hard conflicts even on an exact match.
+    $claimed_by = [];
+    foreach ((read_json_file($MANAGED_FILE) ?? []) as $owner => $entry) {
+        if (isset($entry['id'])) $claimed_by[(int)$entry['id']] = $owner;
     }
+    $own_id = array_search($container, $claimed_by, true);
+    if ($own_id === false) $own_id = null;
 
     $domain_match = null;
     $target_match = null;
     foreach ($hosts as $h) {
-        if (in_array((int)($h['id'] ?? 0), $managed_ids)) continue;
+        $hid = (int)($h['id'] ?? 0);
+        if ($hid === $own_id) continue;
         $names = $h['domain_names'] ?? [];
         if ($domain_match === null && in_array($domain, $names)) $domain_match = $h;
         if ($target_match === null && ($h['forward_host'] ?? '') === $fh
@@ -116,12 +121,20 @@ function find_conflict($container) {
     }
 
     if ($domain_match !== null) {
+        $mid = (int)$domain_match['id'];
+        if (isset($claimed_by[$mid])) {
+            return "Conflict: NPM entry #$mid ($domain) is already managed for container '{$claimed_by[$mid]}'.";
+        }
         $t = ($domain_match['forward_host'] ?? '?') . ':' . ($domain_match['forward_port'] ?? '?');
-        if ($t === "$fh:$port") return null; // exact match: adoptable
+        if ($t === "$fh:$port") return null; // exact match, unclaimed: adoptable
         return "Domain conflict: $domain is already proxied to $t by NPM entry #{$domain_match['id']}.";
     }
     if ($target_match !== null) {
+        $mid = (int)$target_match['id'];
         $d = ($target_match['domain_names'][0] ?? '?');
+        if (isset($claimed_by[$mid])) {
+            return "Conflict: target $fh:$port is already managed for container '{$claimed_by[$mid]}' (NPM entry #$mid, $d).";
+        }
         return "Target conflict: $fh:$port is already proxied by $d (NPM entry #{$target_match['id']}).";
     }
     return null;

@@ -257,6 +257,15 @@ create_or_adopt() {
     '[.[] | select(.domain_names | index($d))][0] // empty')
   if [ -n "$match" ]; then
     id=$(echo "$match" | jq -r '.id')
+    # Never adopt an entry already claimed by a different container
+    local claimant
+    claimant=$(jq -r --argjson id "$id" --arg c "$c" \
+      'to_entries[] | select(.value.id == $id and .key != $c) | .key' \
+      "$(managed_file_or_empty)" | head -n1)
+    if [ -n "$claimant" ]; then
+      log "CONFLICT: $c wants $domain but NPM entry #$id is already managed for container $claimant; skipping"
+      return 1
+    fi
     if [ "$(echo "$match" | jq -r '.forward_host')" = "$FORWARD_HOST" ] \
        && [ "$(echo "$match" | jq -r '.forward_port')" = "$port" ]; then
       log "Adopting proxy host #$id for $c ($domain -> $FORWARD_HOST:$port) - now fully managed"

@@ -127,6 +127,7 @@ function find_conflict($container) {
         }
         $t = ($domain_match['forward_host'] ?? '?') . ':' . ($domain_match['forward_port'] ?? '?');
         if ($t === "$fh:$port") return null; // exact match, unclaimed: adoptable
+        if (($domain_match['meta']['npm_auto'] ?? false) === true) return null; // stamped: auto-adoptable
         return "Domain conflict: $domain is already proxied to $t by NPM entry #{$domain_match['id']}.";
     }
     if ($target_match !== null) {
@@ -135,6 +136,7 @@ function find_conflict($container) {
         if (isset($claimed_by[$mid])) {
             return "Conflict: target $fh:$port is already managed for container '{$claimed_by[$mid]}' (NPM entry #$mid, $d).";
         }
+        if (($target_match['meta']['npm_auto'] ?? false) === true) return null; // stamped: auto-adoptable
         return "Target conflict: $fh:$port is already proxied by $d (NPM entry #{$target_match['id']}).";
     }
     return null;
@@ -164,6 +166,12 @@ function set_toggle($data) {
     }
 
     $state = read_state();
+
+    // Skip no-op writes: state.json lives on the flash device
+    if (($state[$container]['enabled'] ?? null) === $enabled) {
+        echo json_encode(['ok' => true, 'state' => $state]);
+        return;
+    }
     $state[$container]['enabled'] = $enabled;
 
     if (file_put_contents($STATE_FILE, json_encode($state, JSON_PRETTY_PRINT)) !== false) {

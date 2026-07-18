@@ -164,6 +164,7 @@ host_update() {
   live=$(host_live "$id")
   [ -n "$live" ] || return 1
   payload=$(echo "$live" | jq -c "$filter
+    | .locations = (.locations // [])
     | del(.id, .created_on, .modified_on, .owner_user_id, .owner,
           .certificate, .access_list, .use_default_location, .ipv6,
           .nginx_online, .nginx_err)") || return 1
@@ -247,21 +248,45 @@ container_domain() {
 }
 
 #--- Proxy host management ---
+claimant_of() {
+  # claimant_of <id> <container> -> name of a DIFFERENT container managing id
+  jq -r --argjson id "$1" --arg c "$2" \
+    'to_entries[] | select(.value.id == $id and .key != $c) | .key' \
+    "$(managed_file_or_empty)" | head -n1
+}
+
+is_stamped() {
+  # is_stamped <host-json> -> exit 0 if the entry bears our meta stamp
+  [ "$(echo "$1" | jq -r '.meta.npm_auto // false')" = "true" ]
+}
+
+adopt_entry() {
+  # adopt_entry <container> <id> <domain> <host-json>
+  local c=$1 id=$2 domain=$3 match=$4
+  managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"disabled\": false}"
+  if ! is_stamped "$match"; then
+    host_update "$id" '.meta = ((.meta // {}) + {npm_auto: true})' \
+      && log "Stamped adopted host #$id ($c) with npm_auto marker"
+  fi
+  if [ "$(echo "$match" | jq -r '.enabled')" = "false" ] || [ "$(echo "$match" | jq -r '.enabled')" = "0" ]; then
+    host_update "$id" '.enabled = true' && log "Re-enabled adopted host #$id ($c)"
+  fi
+}
+
 create_or_adopt() {
   # create_or_adopt <container> <domain> <port>
-  # Adopt only on an exact domain + forward-target match; anything partial
-  # is a conflict (webGui rejects these up-front; this is the backstop).
-  local c=$1 domain=$2 port=$3 payload resp id cert_id match
+  # Adopt on an exact domain + forward-target match, or on a partial match
+  # when the entry bears our npm_auto stamp (a previously managed entry -
+  # e.g. after a container rename or plugin reinstall - drift then heals
+  # the changed half). Unstamped partial matches are conflicts (webGui
+  # rejects these up-front; this is the backstop).
+  local c=$1 domain=$2 port=$3 payload resp id cert_id match claimant
 
   match=$(echo "$HOSTS_CACHE" | jq -c --arg d "$domain" \
     '[.[] | select(.domain_names | index($d))][0] // empty')
   if [ -n "$match" ]; then
     id=$(echo "$match" | jq -r '.id')
-    # Never adopt an entry already claimed by a different container
-    local claimant
-    claimant=$(jq -r --argjson id "$id" --arg c "$c" \
-      'to_entries[] | select(.value.id == $id and .key != $c) | .key' \
-      "$(managed_file_or_empty)" | head -n1)
+    claimant=$(claimant_of "$id" "$c")
     if [ -n "$claimant" ]; then
       log "CONFLICT: $c wants $domain but NPM entry #$id is already managed for container $claimant; skipping"
       return 1
@@ -269,21 +294,28 @@ create_or_adopt() {
     if [ "$(echo "$match" | jq -r '.forward_host')" = "$FORWARD_HOST" ] \
        && [ "$(echo "$match" | jq -r '.forward_port')" = "$port" ]; then
       log "Adopting proxy host #$id for $c ($domain -> $FORWARD_HOST:$port) - now fully managed"
-      managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"disabled\": false}"
-      if [ "$(echo "$match" | jq -r '.enabled')" = "false" ] || [ "$(echo "$match" | jq -r '.enabled')" = "0" ]; then
-        host_update "$id" '.enabled = true' && log "Re-enabled adopted host #$id ($c)"
-      fi
+      adopt_entry "$c" "$id" "$domain" "$match"
+    elif is_stamped "$match"; then
+      log "Auto-adopting stamped host #$id for $c ($domain) - target will be updated by drift enforcement"
+      adopt_entry "$c" "$id" "$domain" "$match"
     else
       log "CONFLICT: $c wants $domain -> $FORWARD_HOST:$port but NPM entry #$id already proxies $domain -> $(echo "$match" | jq -r '.forward_host'):$(echo "$match" | jq -r '.forward_port'); not touching it"
     fi
     return 0
   fi
 
-  # No domain match; refuse to create if the forward target is already proxied
+  # No domain match; check entries already proxying this forward target
   match=$(echo "$HOSTS_CACHE" | jq -c --arg h "$FORWARD_HOST" --argjson p "$port" \
     '[.[] | select(.forward_host == $h and .forward_port == $p)][0] // empty')
   if [ -n "$match" ]; then
-    log "CONFLICT: $c wants target $FORWARD_HOST:$port but NPM entry #$(echo "$match" | jq -r '.id') ($(echo "$match" | jq -r '.domain_names[0]')) already proxies it; skipping"
+    id=$(echo "$match" | jq -r '.id')
+    claimant=$(claimant_of "$id" "$c")
+    if [ -z "$claimant" ] && is_stamped "$match"; then
+      log "Auto-adopting stamped host #$id for $c (target $FORWARD_HOST:$port) - domain will be updated to $domain by drift enforcement"
+      adopt_entry "$c" "$id" "$domain" "$match"
+      return 0
+    fi
+    log "CONFLICT: $c wants target $FORWARD_HOST:$port but NPM entry #$id ($(echo "$match" | jq -r '.domain_names[0]')) already proxies it; skipping"
     return 1
   fi
 
@@ -307,6 +339,7 @@ create_or_adopt() {
     hsts_enabled: false,
     hsts_subdomains: false,
     enabled: true,
+    locations: [],
     meta: { npm_auto: true }
   }')
   resp=$(npm_api POST "/api/nginx/proxy-hosts" "$payload") || return 1

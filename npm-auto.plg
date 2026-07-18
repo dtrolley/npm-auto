@@ -6,12 +6,20 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.07.18-1">
-<!ENTITY md5 "b860b0ee085f73e5f630585b6fd1f3ba">
+<!ENTITY version "2026.07.18-3">
+<!ENTITY md5 "17b5a60d87575e87322621f186b5b7fd">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.07.18b
+- Stamp-based auto-adoption: entries bearing the npm_auto meta stamp are
+  re-adopted on domain OR target match (heals container renames and plugin
+  reinstalls); adopted entries are stamped too
+- Fix: include locations[] in created entries and normalize it on updates
+  (NPM rejected updates to daemon-created entries with a 400 otherwise)
+- Skip no-op state.json writes to spare the flash device
+
 ### 2026.07.18
 - Settings pre-fill for fresh installs: NPM host defaults to the Unraid
   host's detected LAN IP, port defaults to 81 (both customizable)

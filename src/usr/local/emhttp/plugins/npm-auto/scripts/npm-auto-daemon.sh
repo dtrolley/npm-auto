@@ -7,8 +7,15 @@
 # desired state selected via the Docker-tab toggles.
 #
 # Ownership split (avoids write races with the webGui PHP):
-#   state.json   - written ONLY by webGui (desired state: which containers on)
-#   managed.json - written ONLY by this daemon (proxy host IDs it created)
+#   state.json           - written ONLY by webGui (desired state)
+#   managed.json         - written ONLY by this daemon (hosts it manages)
+#   cleanup_request.json - written by webGui, consumed (deleted) by daemon
+#
+# managed.json entry: { id, domain, created, disabled }
+#   created=true  -> plugin made this host; fully owned (domain/port enforced)
+#   created=false -> adopted pre-existing host; never rewritten, only
+#                    enabled/disabled, and released if the domain no longer
+#                    corresponds to the container
 #==============================================================================
 
 #--- Configuration ---
@@ -17,6 +24,7 @@ VAR_DIR="$BASE_DIR/var"
 SETTINGS_FILE="$VAR_DIR/settings.json"
 STATE_FILE="$VAR_DIR/state.json"
 MANAGED_FILE="$VAR_DIR/managed.json"
+CLEANUP_FILE="$VAR_DIR/cleanup_request.json"
 LOG_FILE="/var/log/npm-auto.log"
 RECONCILE_INTERVAL=15
 
@@ -38,6 +46,7 @@ load_settings() {
   NPM_PASS=$(setting NPM_PASS "")
   DEFAULT_DOMAIN=$(setting DEFAULT_DOMAIN "")
   LABEL_OVERRIDES=$(setting LABEL_OVERRIDES "true")
+  TOGGLE_OFF_ACTION=$(setting TOGGLE_OFF_ACTION "disable")   # keep|disable|delete
   NPM_BASE_URL="http://$NPM_HOST:$NPM_PORT"
 }
 
@@ -46,19 +55,22 @@ log() {
   echo "$(date -Iseconds) $*" >> "$LOG_FILE"
 }
 
-#--- Managed-hosts bookkeeping (container -> NPM proxy host id) ---
-managed_get_id() {
-  # managed_get_id <container>  -> id or empty
-  [ -f "$MANAGED_FILE" ] || { echo ""; return; }
-  jq -r --arg c "$1" '.[$c].id // empty' "$MANAGED_FILE" 2>/dev/null
+#--- Managed-hosts bookkeeping ---
+managed_file_or_empty() {
+  [ -f "$MANAGED_FILE" ] || echo "{}" > "$MANAGED_FILE"
+  echo "$MANAGED_FILE"
 }
 
-managed_set() {
-  # managed_set <container> <id> <domain>
+managed_get() {
+  # managed_get <container> -> compact json object or empty
+  jq -c --arg c "$1" '.[$c] // empty' "$(managed_file_or_empty)" 2>/dev/null
+}
+
+managed_put() {
+  # managed_put <container> <json-object>
   local tmp
   tmp=$(mktemp)
-  jq --arg c "$1" --argjson id "$2" --arg d "$3" '.[$c] = {id: $id, domain: $d}' \
-    "$(managed_file_or_empty)" > "$tmp" && mv "$tmp" "$MANAGED_FILE"
+  jq --arg c "$1" --argjson v "$2" '.[$c] = $v' "$(managed_file_or_empty)" > "$tmp" && mv "$tmp" "$MANAGED_FILE"
 }
 
 managed_del() {
@@ -68,25 +80,21 @@ managed_del() {
   jq --arg c "$1" 'del(.[$c])' "$(managed_file_or_empty)" > "$tmp" && mv "$tmp" "$MANAGED_FILE"
 }
 
-managed_file_or_empty() {
-  if [ -f "$MANAGED_FILE" ]; then
-    echo "$MANAGED_FILE"
-  else
-    echo "{}" > "$MANAGED_FILE"
-    echo "$MANAGED_FILE"
-  fi
-}
-
 #--- NPM API ---
-NPM_TOKEN=""
+# Token is cached in a file because npm_api usually runs in $(...) subshells,
+# where shell-variable writes would not survive back to the parent.
+TOKEN_FILE="/var/run/npm-auto.token"
+HOSTS_CACHE="[]"
+CERTS_CACHE="[]"
 
 npm_login() {
-  local resp
+  local resp token
   resp=$(curl -s -m 15 -X POST "$NPM_BASE_URL/api/tokens" \
     -H "Content-Type: application/json" \
     -d "{\"identity\":\"$NPM_USER\",\"secret\":\"$NPM_PASS\"}")
-  NPM_TOKEN=$(echo "$resp" | jq -r '.token // empty' 2>/dev/null)
-  if [ -n "$NPM_TOKEN" ]; then
+  token=$(echo "$resp" | jq -r '.token // empty' 2>/dev/null)
+  if [ -n "$token" ]; then
+    (umask 077; echo "$token" > "$TOKEN_FILE")
     log "NPM login OK ($NPM_BASE_URL)"
     return 0
   fi
@@ -95,11 +103,13 @@ npm_login() {
 }
 
 npm_api() {
-  # npm_api <method> <path> [json-data]  -> response body; retries once on 401
-  local method=$1 path=$2 data=${3:-} resp http_code out
+  # npm_api <method> <path> [json-data] -> response body; retries once on 401
+  local method=$1 path=$2 data=${3:-} resp http_code out NPM_TOKEN
   for attempt in 1 2; do
+    NPM_TOKEN=$(cat "$TOKEN_FILE" 2>/dev/null)
     if [ -z "$NPM_TOKEN" ]; then
       npm_login || return 1
+      NPM_TOKEN=$(cat "$TOKEN_FILE" 2>/dev/null)
     fi
     if [ -n "$data" ]; then
       resp=$(curl -s -m 20 -w $'\n%{http_code}' -X "$method" "$NPM_BASE_URL$path" \
@@ -113,7 +123,7 @@ npm_api() {
     http_code=$(echo "$resp" | tail -n1)
     out=$(echo "$resp" | sed '$d')
     if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
-      NPM_TOKEN=""
+      rm -f "$TOKEN_FILE"
       continue
     fi
     if [ "${http_code:0:1}" = "2" ]; then
@@ -124,6 +134,54 @@ npm_api() {
     return 1
   done
   return 1
+}
+
+refresh_caches() {
+  local h c
+  h=$(npm_api GET "/api/nginx/proxy-hosts") || return 1
+  c=$(npm_api GET "/api/nginx/certificates") || c="[]"
+  HOSTS_CACHE=$h
+  CERTS_CACHE=$c
+  return 0
+}
+
+host_live() {
+  # host_live <id> -> compact json of the live proxy host, or empty
+  echo "$HOSTS_CACHE" | jq -c --argjson id "$1" '.[] | select(.id == $id)' 2>/dev/null
+}
+
+host_update() {
+  # host_update <id> <jq-mutation-filter>  e.g. '.enabled = true'
+  # Fetches the live object, applies the mutation, strips read-only fields, PUTs.
+  local id=$1 filter=$2 live payload
+  live=$(host_live "$id")
+  [ -n "$live" ] || return 1
+  payload=$(echo "$live" | jq -c "$filter
+    | del(.id, .created_on, .modified_on, .owner_user_id, .owner,
+          .certificate, .access_list, .use_default_location, .ipv6,
+          .nginx_online, .nginx_err)") || return 1
+  npm_api PUT "/api/nginx/proxy-hosts/$id" "$payload" >/dev/null
+}
+
+pick_cert() {
+  # pick_cert <fqdn> -> certificate id (or empty). Prefers exact/wildcard
+  # domain match, skips expired certs, picks the latest expiry.
+  echo "$CERTS_CACHE" | jq -r --arg f "$1" '
+    [ .[]
+      | select(.domain_names != null)
+      | select([ .domain_names[]
+          | (. == $f)
+            or ( startswith("*.")
+                 and ($f | endswith(.[1:]))
+                 and (($f | rtrimstr(.[1:])) | length > 0)
+                 and (($f | rtrimstr(.[1:])) | contains(".") | not) )
+        ] | any)
+      | select( try ((.expires_on
+                       | sub("\\.[0-9]+";"") | sub(" ";"T")
+                       | (if endswith("Z") then . else . + "Z" end)
+                       | fromdateiso8601) > now)
+                catch true )
+    ] | sort_by(.expires_on) | reverse | .[0].id // empty'
 }
 
 #--- Container introspection ---
@@ -150,7 +208,6 @@ container_port() {
   webui=$(container_label "$c" "net.unraid.docker.webui")
   if [[ "$webui" =~ \[PORT:([0-9]+)\] ]]; then
     inner="${BASH_REMATCH[1]}"
-    # Map internal port to the published host port
     port=$(docker inspect --format \
       "{{ range \$p, \$conf := .NetworkSettings.Ports }}{{ if \$conf }}{{ \$p }} {{ (index \$conf 0).HostPort }}{{ \"\n\" }}{{ end }}{{ end }}" \
       "$c" 2>/dev/null | awk -v p="$inner" '$1 ~ "^"p"/" {print $2; exit}')
@@ -183,28 +240,34 @@ container_domain() {
 }
 
 #--- Proxy host management ---
-create_proxy_host() {
-  # create_proxy_host <container> <domain> <port>
-  local c=$1 domain=$2 port=$3 payload resp id
+create_or_adopt() {
+  # create_or_adopt <container> <domain> <port>
+  local c=$1 domain=$2 port=$3 payload resp id cert_id
 
-  # Adopt an existing NPM host for this domain if one exists
-  resp=$(npm_api GET "/api/nginx/proxy-hosts") || return 1
-  id=$(echo "$resp" | jq -r --arg d "$domain" \
+  # Adopt an existing NPM host that already serves this exact domain
+  id=$(echo "$HOSTS_CACHE" | jq -r --arg d "$domain" \
     '[.[] | select(.domain_names | index($d))][0].id // empty')
   if [ -n "$id" ]; then
-    log "Adopting existing proxy host #$id for $c ($domain)"
-    managed_set "$c" "$id" "$domain"
+    log "Adopting existing proxy host #$id for $c ($domain) - will not rewrite it"
+    managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"created\": false, \"disabled\": false}"
+    # Re-enable it if it was disabled, but change nothing else
+    if [ "$(host_live "$id" | jq -r '.enabled')" = "false" ] || [ "$(host_live "$id" | jq -r '.enabled')" = "0" ]; then
+      host_update "$id" '.enabled = true' && log "Re-enabled adopted host #$id ($c)"
+    fi
     return 0
   fi
 
-  payload=$(jq -n --arg d "$domain" --arg h "$FORWARD_HOST" --argjson p "$port" '{
+  cert_id=$(pick_cert "$domain")
+
+  payload=$(jq -n --arg d "$domain" --arg h "$FORWARD_HOST" --argjson p "$port" \
+    --argjson cert "${cert_id:-0}" '{
     domain_names: [$d],
     forward_scheme: "http",
     forward_host: $h,
     forward_port: $p,
     access_list_id: 0,
-    certificate_id: 0,
-    ssl_forced: false,
+    certificate_id: $cert,
+    ssl_forced: ($cert != 0),
     caching_enabled: false,
     block_exploits: true,
     advanced_config: "",
@@ -221,64 +284,166 @@ create_proxy_host() {
     log "Create proxy host for $c ($domain) returned no id: $(echo "$resp" | head -c 300)"
     return 1
   fi
-  log "Created proxy host #$id: $domain -> $FORWARD_HOST:$port ($c)"
-  managed_set "$c" "$id" "$domain"
+  log "Created proxy host #$id: $domain -> $FORWARD_HOST:$port ($c)${cert_id:+ [cert #$cert_id, SSL forced]}"
+  managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"created\": true, \"disabled\": false}"
 }
 
-delete_proxy_host() {
-  # delete_proxy_host <container> <id>
-  local c=$1 id=$2
-  if npm_api DELETE "/api/nginx/proxy-hosts/$id" >/dev/null; then
-    log "Deleted proxy host #$id ($c)"
-  else
-    log "Delete of proxy host #$id ($c) failed; removing from managed list anyway"
+reconcile_managed_host() {
+  # reconcile_managed_host <container> <managed-json> <domain> <port>
+  # Bring an already-managed host in line with desired config (drift repair).
+  local c=$1 m=$2 domain=$3 port=$4
+  local id created live cert_id
+  id=$(echo "$m" | jq -r '.id')
+  created=$(echo "$m" | jq -r 'if has("created") then .created else true end')
+  live=$(host_live "$id")
+
+  if [ -z "$live" ]; then
+    # Deleted out from under us (externally); forget and recreate next pass
+    log "Managed host #$id ($c) no longer exists in NPM; forgetting it"
+    managed_del "$c"
+    return 0
   fi
-  managed_del "$c"
+
+  # Re-enable if we (or someone) disabled it while the toggle is on
+  if [ "$(echo "$live" | jq -r '.enabled')" = "false" ] || [ "$(echo "$live" | jq -r '.enabled')" = "0" ]; then
+    if host_update "$id" '.enabled = true'; then
+      log "Re-enabled host #$id ($c)"
+      m=$(echo "$m" | jq -c '.disabled = false')
+      managed_put "$c" "$m"
+    fi
+    live=$(host_live "$id" | jq -c '.enabled = true')
+  fi
+
+  if [ "$created" != "true" ]; then
+    # Adopted host: never rewrite. If the domain no longer corresponds to
+    # this container (e.g. DEFAULT_DOMAIN changed), release it untouched.
+    if [ "$(echo "$live" | jq -r --arg d "$domain" '.domain_names | index($d) != null')" != "true" ]; then
+      log "Adopted host #$id ($c) no longer matches computed domain $domain; releasing it untouched"
+      managed_del "$c"
+    fi
+    return 0
+  fi
+
+  # Plugin-created host: enforce desired domain, port, and certificate
+  local drift=""
+  if [ "$(echo "$live" | jq -r --arg d "$domain" '.domain_names == [$d]')" != "true" ]; then
+    drift=".domain_names = [\"$domain\"]"
+  fi
+  if [ "$(echo "$live" | jq -r '.forward_port')" != "$port" ]; then
+    drift="${drift:+$drift | }.forward_port = $port"
+  fi
+  if [ "$(echo "$live" | jq -r '.certificate_id // 0')" = "0" ]; then
+    cert_id=$(pick_cert "$domain")
+    if [ -n "$cert_id" ]; then
+      drift="${drift:+$drift | }.certificate_id = $cert_id | .ssl_forced = true"
+    fi
+  fi
+
+  if [ -n "$drift" ]; then
+    if host_update "$id" "$drift"; then
+      log "Updated host #$id ($c): $drift"
+      managed_put "$c" "$(echo "$m" | jq -c --arg d "$domain" '.domain = $d | .created = true | .disabled = false')"
+    fi
+  fi
+}
+
+apply_off_action() {
+  # apply_off_action <container> <managed-json> [action-override]
+  local c=$1 m=$2 action=${3:-$TOGGLE_OFF_ACTION}
+  local id created
+  id=$(echo "$m" | jq -r '.id')
+  created=$(echo "$m" | jq -r 'if has("created") then .created else true end')
+
+  case "$action" in
+    keep)
+      log "Releasing host #$id ($c) per keep policy - entry left in NPM"
+      managed_del "$c"
+      ;;
+    disable)
+      if [ "$(echo "$m" | jq -r '.disabled // false')" != "true" ]; then
+        if [ -z "$(host_live "$id")" ]; then
+          managed_del "$c"
+        elif host_update "$id" '.enabled = false'; then
+          log "Disabled host #$id ($c)"
+          managed_put "$c" "$(echo "$m" | jq -c '.disabled = true')"
+        fi
+      fi
+      ;;
+    delete)
+      if [ "$created" = "true" ]; then
+        if npm_api DELETE "/api/nginx/proxy-hosts/$id" >/dev/null; then
+          log "Deleted host #$id ($c)"
+        else
+          log "Delete of host #$id ($c) failed; forgetting it anyway"
+        fi
+      else
+        log "Releasing adopted host #$id ($c) - delete policy never removes adopted entries via cleanup"
+      fi
+      managed_del "$c"
+      ;;
+  esac
+}
+
+#--- Cleanup requests from the webGui ---
+handle_cleanup_request() {
+  [ -f "$CLEANUP_FILE" ] || return 0
+  local action c m
+  action=$(jq -r '.action // empty' "$CLEANUP_FILE" 2>/dev/null)
+  rm -f "$CLEANUP_FILE"
+  case "$action" in disable|delete) ;; *) return 0 ;; esac
+
+  log "Processing cleanup request: $action all managed hosts"
+  refresh_caches || { log "Cleanup: NPM unreachable, request dropped"; return 1; }
+  for c in $(jq -r 'keys[]' "$(managed_file_or_empty)" 2>/dev/null); do
+    m=$(managed_get "$c")
+    [ -n "$m" ] && apply_off_action "$c" "$m" "$action"
+  done
+  log "Cleanup request complete"
 }
 
 #--- Reconcile ---
 reconcile() {
-  local desired containers c enabled id domain port
+  local desired containers c enabled m domain port
 
   desired=$(cat "$STATE_FILE" 2>/dev/null)
   [ -n "$desired" ] || desired="{}"
 
-  # Containers currently known to docker
   containers=$(docker ps -a --format '{{.Names}}' 2>/dev/null)
   if [ -z "$containers" ]; then
     log "docker not responding; skipping reconcile"
     return
   fi
 
-  # 1) Ensure proxy hosts exist for enabled + running containers
+  refresh_caches || return
+
   while IFS= read -r c; do
     enabled=$(echo "$desired" | jq -r --arg c "$c" '.[$c].enabled // false')
-    id=$(managed_get_id "$c")
-    running=$(docker inspect --format '{{.State.Running}}' "$c" 2>/dev/null)
+    m=$(managed_get "$c")
 
-    if [ "$enabled" = "true" ] && [ "$running" = "true" ]; then
-      if [ -z "$id" ]; then
-        domain=$(container_domain "$c") || { log "No domain for $c (set DEFAULT_DOMAIN or npm-auto.domain label); skipping"; continue; }
+    if [ "$enabled" = "true" ]; then
+      domain=$(container_domain "$c") || { [ -n "$m" ] || log "No domain for $c (set DEFAULT_DOMAIN or npm-auto.domain label); skipping"; continue; }
+      if [ -n "$m" ]; then
+        port=$(container_port "$c") || port=$(echo "$HOSTS_CACHE" | jq -r --argjson id "$(echo "$m" | jq -r .id)" '.[] | select(.id==$id) | .forward_port // empty')
+        [ -n "$port" ] || continue
+        reconcile_managed_host "$c" "$m" "$domain" "$port"
+      else
+        # Only create for running containers (ports aren't published otherwise)
+        [ "$(docker inspect --format '{{.State.Running}}' "$c" 2>/dev/null)" = "true" ] || continue
         port=$(container_port "$c") || { log "No published port found for $c; skipping"; continue; }
-        create_proxy_host "$c" "$domain" "$port"
+        create_or_adopt "$c" "$domain" "$port"
       fi
     else
-      # Toggled off, or container stopped/removed
-      if [ -n "$id" ]; then
-        delete_proxy_host "$c" "$id"
-      fi
+      [ -n "$m" ] && apply_off_action "$c" "$m"
     fi
   done <<< "$containers"
 
-  # 2) Clean up managed entries whose containers no longer exist
-  if [ -f "$MANAGED_FILE" ]; then
-    for c in $(jq -r 'keys[]' "$MANAGED_FILE" 2>/dev/null); do
-      if ! echo "$containers" | grep -qxF "$c"; then
-        id=$(managed_get_id "$c")
-        [ -n "$id" ] && delete_proxy_host "$c" "$id"
-      fi
-    done
-  fi
+  # Managed entries whose containers no longer exist at all
+  for c in $(jq -r 'keys[]' "$(managed_file_or_empty)" 2>/dev/null); do
+    if ! echo "$containers" | grep -qxF "$c"; then
+      m=$(managed_get "$c")
+      [ -n "$m" ] && { log "Container $c is gone; applying off-policy"; apply_off_action "$c" "$m"; }
+    fi
+  done
 }
 
 #--- Main ---
@@ -288,6 +453,7 @@ main() {
 
   while true; do
     load_settings
+    handle_cleanup_request
 
     if [ "$NPM_ENABLED" != "true" ]; then
       sleep "$RECONCILE_INTERVAL"

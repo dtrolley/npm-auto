@@ -6,12 +6,21 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.07.17-3">
-<!ENTITY md5 "e59831218f42f7d30fbaa3b6f2083e17">
+<!ENTITY version "2026.07.17-7">
+<!ENTITY md5 "7891a1afc75ace9f3fc6881ea42f1937">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.07.17b
+- Auto-select an unexpired NPM certificate (exact or wildcard match) for new
+  proxy hosts; force SSL when one is found
+- Reconcile drift: created hosts follow default-domain/port/cert changes
+- Adopt pre-existing hosts matching a container's domain without rewriting them
+- New "toggle-off action" setting: Keep / Disable / Delete
+- Cleanup controls on the settings page + prompt when disabling the plugin
+- Uninstall never touches NPM entries
+
 ### 2026.07.17
 - Fix settings persistence (PHP variable-scope bug) and CSRF token handling
 - Unify settings as JSON shared by the settings page and daemon

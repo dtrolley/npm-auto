@@ -6,8 +6,9 @@
 // Actions: getState, setToggle
 //==============================================================================
 
-$BASE       = "/boot/config/plugins/npm-auto";
-$STATE_FILE = "{$BASE}/var/state.json";
+$BASE         = "/boot/config/plugins/npm-auto";
+$STATE_FILE   = "{$BASE}/var/state.json";
+$CLEANUP_FILE = "{$BASE}/var/cleanup_request.json";
 
 function read_state() {
     global $STATE_FILE;
@@ -45,6 +46,25 @@ function set_toggle($data) {
     }
 }
 
+function request_cleanup($data) {
+    global $CLEANUP_FILE;
+    $mode = $data['mode'] ?? '';
+    if (!in_array($mode, ['disable', 'delete'])) {
+        echo json_encode(['ok' => false, 'error' => 'Invalid cleanup mode.']);
+        return;
+    }
+    $dir = dirname($CLEANUP_FILE);
+    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
+        echo json_encode(['ok' => false, 'error' => 'Cannot create var directory.']);
+        return;
+    }
+    if (file_put_contents($CLEANUP_FILE, json_encode(['action' => $mode])) !== false) {
+        echo json_encode(['ok' => true]);
+    } else {
+        echo json_encode(['ok' => false, 'error' => 'Failed to write cleanup request.']);
+    }
+}
+
 //--- Main ---
 header('Content-Type: application/json');
 
@@ -54,6 +74,9 @@ switch ($_REQUEST['action'] ?? '') {
         break;
     case 'setToggle':
         set_toggle($_POST);
+        break;
+    case 'cleanup':
+        request_cleanup($_POST);
         break;
     default:
         echo json_encode(['ok' => false, 'error' => 'Unknown action.']);

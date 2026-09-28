@@ -92,12 +92,14 @@
     const enabled = data.state[container]?.enabled === true;
     const override = data.state[container]?.subdomain || '';
     const managed = data.managed[container];
+    const manual = data.unmanaged[container];
     const desired = desiredDomain(container, data);
 
-    let text, title, cls;
+    let text, title, cls, link = null;
     if (enabled && managed && managed.domain === desired) {
       text = shortName(desired, data);
       cls = 'live';
+      link = desired;
       title = `Proxied at https://${desired}`;
     } else if (enabled && desired) {
       text = shortName(desired, data);
@@ -109,22 +111,33 @@
       text = override;
       cls = 'idle';
       title = `Will be proxied at https://${desired} when Auto Proxy is switched on`;
+    } else if (managed?.domain && managed.disabled) {
+      text = shortName(managed.domain, data);
+      cls = 'disabled';
+      title = `${managed.domain} is switched off in NPM because Auto Proxy is off`;
+    } else if (manual) {
+      text = shortName(manual.domain, data);
+      cls = manual.enabled ? 'manual' : 'manual disabled';
+      if (manual.enabled) link = manual.domain;
+      title = `Proxied at https://${manual.domain} by NPM entry #${manual.id}, set up by hand - npm-auto does not manage it`;
+      if (!manual.enabled) title += ' (switched off in NPM)';
+      if (manual.also.length) title += `. Also: ${manual.also.join(', ')}`;
     } else {
-      text = '—';
+      text = '\u2014';
       cls = 'unset';
       title = 'Not proxied';
     }
     if (override) cls += ' override';
-    else if (data.labels[container] && text !== '—') title += ' (from the npm-auto.domain label)';
+    else if (data.labels[container] && (cls === 'live' || cls === 'pending')) title += ' (from the npm-auto.domain label)';
     title += '. Click to change.';
 
     const name = $('<span class="npm-auto-sub-name"></span>').addClass(cls).text(text).attr('title', title);
-    cell.empty().append(name);
-    if (cls.startsWith('live')) {
+    cell.removeClass('editing').empty().append(name);
+    if (link) {
       cell.append(
         $('<a class="npm-auto-sub-open" target="_blank" rel="noopener"><i class="fa fa-external-link"></i></a>')
-          .attr('href', 'https://' + desired)
-          .attr('title', 'Open https://' + desired)
+          .attr('href', 'https://' + link)
+          .attr('title', 'Open https://' + link)
       );
     }
   }
@@ -153,6 +166,7 @@
         }
         data.managed = data.managed || {};
         data.labels = data.labels || {};
+        data.unmanaged = data.unmanaged || {};
         data.default_domain = data.default_domain || '';
         lastData = data;
         renderAll(data);
@@ -251,7 +265,7 @@
       .attr('placeholder', defaultSubdomain(container))
       .attr('title', 'Enter to save, Esc to cancel. Clear it to go back to the default name.');
     const suffix = $('<span class="npm-auto-sub-suffix"></span>').text('.' + lastData.default_domain);
-    cell.empty().append(input, suffix);
+    cell.addClass('editing').empty().append(input, suffix);
     input.trigger('focus').trigger('select');
 
     let done = false;

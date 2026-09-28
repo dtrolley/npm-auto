@@ -6,13 +6,13 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.09.28">
-<!ENTITY md5 "fe0ce2103f1b6d10d3e7e7fe866abc17">
+<!ENTITY version "2026.09.28-1">
+<!ENTITY md5 "ee4a564e1f6b7581c720a0ca666222bb">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
-### 2026.09.28
+### 2026.09.28a
 - New Subdomain column on the Docker tab, after Auto Proxy: shows the name
   each proxied container is served at, and a click sets an override (kept in
   state.json, so no container recreate). A live entry is renamed on the next
@@ -21,6 +21,8 @@
   kept reusing it and stopped reconciling. It now logs in again
 - Identical log lines are written at most once an hour, and the log is
   trimmed past 5 MB: /var/log is a 128 MB tmpfs shared with syslog
+- The Subdomain column also shows hand-made NPM entries (muted), matched to
+  their container by name, forward host or published port
 - Docker tab only refetches state when rows are added, not on every live
   CPU/memory update; script and stylesheet are cache-busted on upgrade
 

@@ -37,14 +37,18 @@
 
 /* Subdomain column. Colours come from the theme's own text colour, dimmed,
    so it reads correctly on Unraid's light and dark themes alike. */
-td.npm-auto-sub {
+table#docker_containers td.npm-auto-sub {
   white-space: nowrap;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
+/* Truncate here, not on the cell: table cells ignore max-width. The full
+   name is in the tooltip. */
 .npm-auto-sub-name {
+  display: inline-block;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
   cursor: pointer;
   border-bottom: 1px dotted transparent;
 }
@@ -53,7 +57,7 @@ td.npm-auto-sub {
   border-bottom-color: currentColor;
 }
 
-.npm-auto-sub-name.live      { opacity: 0.75; }
+.npm-auto-sub-name.live      { color: #8bc34a; } /* managed by npm-auto: the toggle's green */
 .npm-auto-sub-name.override  { opacity: 1; font-weight: bold; }
 .npm-auto-sub-name.pending   { font-style: italic; opacity: 0.6; }
 .npm-auto-sub-name.idle      { opacity: 0.45; }
@@ -71,15 +75,22 @@ td.npm-auto-sub {
   opacity: 1;
 }
 
-input.npm-auto-sub-input {
+/* Unraid styles every text input as a full-width block; keep this one inline
+   so the domain suffix sits beside it. */
+table#docker_containers td.npm-auto-sub input.npm-auto-sub-input {
+  display: inline-block;
   width: 110px;
   min-width: 0;
+  max-width: 110px;
   margin: 0;
   padding: 1px 4px;
   font-size: inherit;
+  vertical-align: baseline;
 }
 
 .npm-auto-sub-suffix {
   opacity: 0.5;
   margin-left: 2px;
 }
+.npm-auto-sub-name.manual    { opacity: 0.7; } /* hand-made NPM entry */
+.npm-auto-sub-name.disabled  { opacity: 0.4; text-decoration: line-through; }

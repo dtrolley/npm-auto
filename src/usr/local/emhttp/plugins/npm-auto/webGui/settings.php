@@ -20,38 +20,110 @@ function read_state() {
     return (json_last_error() === JSON_ERROR_NONE && is_array($state)) ? $state : [];
 }
 
+// The host's LAN IP: the forward host npm-auto writes, and the one hand-made
+// entries use for containers with published ports.
+function lan_ip() {
+    return preg_match('/src (\S+)/', shell_exec("ip route get 1 2>/dev/null") ?? '', $m) ? $m[1] : '';
+}
+
+// NPM entries npm-auto does not manage, matched to the container they serve so
+// the Docker tab shows every proxied container, not only the automated ones.
+// Best evidence first: the entry carries the container's default name, then it
+// forwards to the container by name, then to one of its published ports.
+function match_unmanaged($containers, $managed, $dd) {
+    global $HOSTS_SNAPSHOT;
+    $hosts = read_json_file($HOSTS_SNAPSHOT) ?? [];
+    $fh = lan_ip();
+    $claimed = [];
+    foreach ($managed as $e) if (isset($e['id'])) $claimed[(int)$e['id']] = true;
+
+    $score = function ($name, $ports, $h) use ($dd, $fh) {
+        $want  = $dd === '' ? '' : default_subdomain($name) . ".$dd";
+        $names = array_map('strtolower', $h['domain_names'] ?? []);
+        $fhost = strtolower($h['forward_host'] ?? '');
+        if ($want !== '' && in_array($want, $names, true)) return 3;
+        if ($fhost === strtolower($name)) return 2;
+        if ($fh !== '' && $fhost === $fh && in_array((int)($h['forward_port'] ?? 0), $ports, true)) return 1;
+        return 0;
+    };
+
+    // An entry named for, or forwarding to, one container is not also
+    // another's just because they share a port (e.g. a replacement container).
+    $strong = [];
+    foreach ($containers as $name => $ports) {
+        foreach ($hosts as $h) {
+            if ($score($name, $ports, $h) >= 2) $strong[(int)($h['id'] ?? 0)] = $name;
+        }
+    }
+
+    $out = [];
+    foreach ($containers as $name => $ports) {
+        if (isset($managed[$name])) continue;
+        $matches = [];
+        foreach ($hosts as $h) {
+            $id = (int)($h['id'] ?? 0);
+            if (isset($claimed[$id])) continue;
+            $sc = $score($name, $ports, $h);
+            if ($sc === 0) continue;
+            if ($sc === 1 && isset($strong[$id]) && $strong[$id] !== $name) continue;
+            $matches[] = [$sc, $id, $h];
+        }
+        if (!$matches) continue;
+        usort($matches, fn($a, $b) => [$b[0], $a[1]] <=> [$a[0], $b[1]]);
+        $best = $matches[0][2];
+        $out[$name] = [
+            'id'      => (int)$best['id'],
+            'domain'  => strtolower($best['domain_names'][0] ?? ''),
+            'enabled' => !in_array($best['enabled'] ?? true, [false, 0, '0'], true),
+            'also'    => array_values(array_map(fn($m) => strtolower($m[2]['domain_names'][0] ?? ''), array_slice($matches, 1))),
+        ];
+    }
+    return $out;
+}
+
 // Everything the Docker tab needs in one request: the toggles' desired state,
-// the entries the daemon actually manages (the domain in use), and enough to
-// predict the domain of a container that is not proxied yet.
+// the entries the daemon manages (the domain in use), hand-made NPM entries
+// for the rest, and enough to predict the domain of a container not yet proxied.
 function get_state() {
     global $SETTINGS_FILE, $MANAGED_FILE;
-    $settings = read_json_file($SETTINGS_FILE) ?? [];
+    $settings  = read_json_file($SETTINGS_FILE) ?? [];
+    $labels_on = ($settings['LABEL_OVERRIDES'] ?? true) === true;
+    $dd        = strtolower(trim($settings['DEFAULT_DOMAIN'] ?? ''));
 
+    $managed_raw = read_json_file($MANAGED_FILE) ?? [];
     $managed = [];
-    foreach ((read_json_file($MANAGED_FILE) ?? []) as $c => $e) {
+    foreach ($managed_raw as $c => $e) {
         $managed[$c] = ['domain' => $e['domain'] ?? null, 'disabled' => (bool)($e['disabled'] ?? false)];
     }
 
-    // npm-auto.domain labels, one docker call for every container rather
-    // than one per row.
+    // Labels and host ports for every container, in one docker call rather
+    // than one per row. Configured bindings, not live ones, so a stopped
+    // container still shows the entry that serves it.
+    $fmt = '{{.Name}}|{{index .Config.Labels "npm-auto.domain"}}|{{json .HostConfig.PortBindings}}';
+    $out = shell_exec('docker ps -aq | xargs -r docker inspect --format ' . escapeshellarg($fmt) . ' 2>/dev/null') ?? '';
     $labels = [];
-    if (($settings['LABEL_OVERRIDES'] ?? true) === true) {
-        $fmt = '{{.Name}}|{{index .Config.Labels "npm-auto.domain"}}';
-        $out = shell_exec('docker ps -aq | xargs -r docker inspect --format ' . escapeshellarg($fmt) . ' 2>/dev/null') ?? '';
-        foreach (explode("\n", trim($out)) as $line) {
-            $parts = explode('|', $line, 2);
-            if (count($parts) !== 2) continue;
-            $d = trim($parts[1]);
-            if ($d !== '' && $d !== '<no value>') $labels[ltrim($parts[0], '/')] = $d;
+    $containers = [];
+    foreach (explode("\n", trim($out)) as $line) {
+        $parts = explode('|', $line, 3);
+        if (count($parts) !== 3) continue;
+        $name = ltrim($parts[0], '/');
+        $d = trim($parts[1]);
+        if ($labels_on && $d !== '' && $d !== '<no value>') $labels[$name] = $d;
+        $ports = [];
+        foreach ((json_decode($parts[2], true) ?: []) as $binds) {
+            if (!is_array($binds)) continue;
+            foreach ($binds as $b) if (($b['HostPort'] ?? '') !== '') $ports[] = (int)$b['HostPort'];
         }
+        $containers[$name] = array_values(array_unique($ports));
     }
 
     echo json_encode([
         'ok'             => true,
         'state'          => read_state(),
         'managed'        => (object)$managed,
+        'unmanaged'      => (object)match_unmanaged($containers, $managed_raw, $dd),
         'labels'         => (object)$labels,
-        'default_domain' => trim($settings['DEFAULT_DOMAIN'] ?? ''),
+        'default_domain' => $dd,
     ]);
 }
 
@@ -144,8 +216,7 @@ function find_conflict($container, $sub = null) {
     $hosts = read_json_file($HOSTS_SNAPSHOT);
     if ($hosts === null) return null; // daemon hasn't published yet; it re-checks anyway
 
-    $fh = '';
-    if (preg_match('/src (\S+)/', shell_exec("ip route get 1 2>/dev/null") ?? '', $m)) $fh = $m[1];
+    $fh = lan_ip();
     if ($fh === '') return null;
 
     // Map NPM entry id -> owning container. Only THIS container's own entry

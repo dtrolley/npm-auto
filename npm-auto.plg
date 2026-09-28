@@ -6,12 +6,24 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.07.18-3">
-<!ENTITY md5 "17b5a60d87575e87322621f186b5b7fd">
+<!ENTITY version "2026.09.28">
+<!ENTITY md5 "fe0ce2103f1b6d10d3e7e7fe866abc17">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.09.28
+- New Subdomain column on the Docker tab, after Auto Proxy: shows the name
+  each proxied container is served at, and a click sets an override (kept in
+  state.json, so no container recreate). A live entry is renamed on the next
+  pass, and its certificate re-picked for the new name
+- Fix: NPM answers an expired token with HTTP 400, not 401, so the daemon
+  kept reusing it and stopped reconciling. It now logs in again
+- Identical log lines are written at most once an hour, and the log is
+  trimmed past 5 MB: /var/log is a 128 MB tmpfs shared with syslog
+- Docker tab only refetches state when rows are added, not on every live
+  CPU/memory update; script and stylesheet are cache-busted on upgrade
+
 ### 2026.07.18b
 - Stamp-based auto-adoption: entries bearing the npm_auto meta stamp are
   re-adopted on domain OR target match (heals container renames and plugin

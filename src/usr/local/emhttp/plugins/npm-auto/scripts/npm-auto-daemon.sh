@@ -53,8 +53,34 @@ load_settings() {
 }
 
 #--- Logging ---
+# /var/log is a small tmpfs on Unraid (128M), shared with syslog. A failure
+# that repeats every cycle must not be allowed to fill it: an expired-token
+# loop once wrote ~95MB here in ten weeks. So an identical message is logged
+# at most once per LOG_REPEAT_SECS, and the file is trimmed past LOG_MAX_BYTES.
+# The seen-markers live in a file because log() often runs inside $(...).
+LOG_SEEN_DIR="/var/run/npm-auto-logseen"
+LOG_REPEAT_SECS=3600
+LOG_MAX_BYTES=5242880
+
 log() {
-  echo "$(date -Iseconds) $*" >> "$LOG_FILE"
+  local msg="$*" key marker now
+  now=$(date +%s)
+  key=$(printf '%s' "$msg" | md5sum | cut -c1-16)
+  marker="$LOG_SEEN_DIR/$key"
+  mkdir -p "$LOG_SEEN_DIR"
+  if [ -f "$marker" ] && [ $((now - $(cat "$marker" 2>/dev/null || echo 0))) -lt "$LOG_REPEAT_SECS" ]; then
+    return 0
+  fi
+  echo "$now" > "$marker"
+  echo "$(date -Iseconds) $msg" >> "$LOG_FILE"
+}
+
+trim_log() {
+  local size
+  size=$(stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)
+  if [ "$size" -gt "$LOG_MAX_BYTES" ]; then
+    tail -c 1048576 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+  fi
 }
 
 #--- Managed-hosts bookkeeping ---
@@ -124,7 +150,10 @@ npm_api() {
     fi
     http_code=$(echo "$resp" | tail -n1)
     out=$(echo "$resp" | sed '$d')
-    if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
+    # NPM reports an expired token as 400 (TokenExpiredError), not 401 -
+    # without this the cached token is reused forever and nothing reconciles.
+    if [ "$http_code" = "401" ] || [ "$http_code" = "403" ] \
+       || { [ "$http_code" = "400" ] && echo "$out" | grep -q -E 'TokenExpiredError|Token has expired'; }; then
       rm -f "$TOKEN_FILE"
       continue
     fi
@@ -234,8 +263,14 @@ container_port() {
 }
 
 container_domain() {
-  # npm-auto.domain label > <lowercased-container>.<DEFAULT_DOMAIN>
-  local c=$1 domain=""
+  # Subdomain override (set from the Docker tab, kept in state.json)
+  #   > npm-auto.domain label > <lowercased-container>.<DEFAULT_DOMAIN>
+  local c=$1 domain="" sub=""
+  sub=$(jq -r --arg c "$c" '.[$c].subdomain // empty' "$STATE_FILE" 2>/dev/null)
+  if [ -n "$sub" ] && [ -n "$DEFAULT_DOMAIN" ]; then
+    echo "$sub.$DEFAULT_DOMAIN"
+    return 0
+  fi
   if [ "$LABEL_OVERRIDES" = "true" ]; then
     domain=$(container_label "$c" "npm-auto.domain")
     if [ -n "$domain" ] && [ "$domain" != "<no value>" ]; then
@@ -380,9 +415,10 @@ reconcile_managed_host() {
   # Enforce desired domain, forward target, and certificate on every managed
   # host. forward_host enforcement is what bulk-updates all managed entries
   # if the Unraid host's LAN IP ever changes.
-  local drift=""
+  local drift="" domain_changed=""
   if [ "$(echo "$live" | jq -r --arg d "$domain" '.domain_names == [$d]')" != "true" ]; then
     drift=".domain_names = [\"$domain\"]"
+    domain_changed=1
   fi
   if [ "$(echo "$live" | jq -r '.forward_host')" != "$FORWARD_HOST" ]; then
     drift="${drift:+$drift | }.forward_host = \"$FORWARD_HOST\""
@@ -390,10 +426,16 @@ reconcile_managed_host() {
   if [ "$(echo "$live" | jq -r '.forward_port')" != "$port" ]; then
     drift="${drift:+$drift | }.forward_port = $port"
   fi
-  if [ "$AUTO_SSL" = "true" ] && [ "$(echo "$live" | jq -r '.certificate_id // 0')" = "0" ]; then
-    cert_id=$(pick_cert "$domain")
-    if [ -n "$cert_id" ]; then
-      drift="${drift:+$drift | }.certificate_id = $cert_id | .ssl_forced = true"
+  # Attach a certificate when there is none, and re-pick when the domain is
+  # changing - the old certificate may not cover the new name.
+  if [ "$AUTO_SSL" = "true" ]; then
+    local current_cert
+    current_cert=$(echo "$live" | jq -r '.certificate_id // 0')
+    if [ "$current_cert" = "0" ] || [ -n "$domain_changed" ]; then
+      cert_id=$(pick_cert "$domain")
+      if [ -n "$cert_id" ] && [ "$cert_id" != "$current_cert" ]; then
+        drift="${drift:+$drift | }.certificate_id = $cert_id | .ssl_forced = true"
+      fi
     fi
   fi
 
@@ -502,9 +544,11 @@ reconcile() {
 #--- Main ---
 main() {
   mkdir -p "$VAR_DIR"
+  rm -rf "$LOG_SEEN_DIR"
   log "npm-auto daemon starting (pid $$)"
 
   while true; do
+    trim_log
     load_settings
     handle_cleanup_request
 

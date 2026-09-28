@@ -34,3 +34,52 @@
   margin-left: 5px;
   vertical-align: middle;
 }
+
+/* Subdomain column. Colours come from the theme's own text colour, dimmed,
+   so it reads correctly on Unraid's light and dark themes alike. */
+td.npm-auto-sub {
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.npm-auto-sub-name {
+  cursor: pointer;
+  border-bottom: 1px dotted transparent;
+}
+
+.npm-auto-sub-name:hover {
+  border-bottom-color: currentColor;
+}
+
+.npm-auto-sub-name.live      { opacity: 0.75; }
+.npm-auto-sub-name.override  { opacity: 1; font-weight: bold; }
+.npm-auto-sub-name.pending   { font-style: italic; opacity: 0.6; }
+.npm-auto-sub-name.idle      { opacity: 0.45; }
+.npm-auto-sub-name.unset     { opacity: 0.3; }
+.npm-auto-sub-name.unset:hover::after {
+  content: ' set\2026';
+}
+
+.npm-auto-sub-open {
+  margin-left: 6px;
+  opacity: 0.5;
+}
+
+.npm-auto-sub-open:hover {
+  opacity: 1;
+}
+
+input.npm-auto-sub-input {
+  width: 110px;
+  min-width: 0;
+  margin: 0;
+  padding: 1px 4px;
+  font-size: inherit;
+}
+
+.npm-auto-sub-suffix {
+  opacity: 0.5;
+  margin-left: 2px;
+}

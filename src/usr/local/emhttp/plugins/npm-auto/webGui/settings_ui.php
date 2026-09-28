@@ -57,6 +57,12 @@
     <input type="button" value="Done" onClick="done()">
   </form>
 
+  <h3>Subdomain overrides</h3>
+  <p>The <strong>Subdomain</strong> column on the Docker tab shows the name each proxied container is
+     served at under the default domain. Click it to choose a different one &mdash; no container
+     restart needed, and a live proxy host is renamed within ~15 seconds. Clear it to go back to the
+     default. An override set there takes priority over the <code>npm-auto.domain</code> label.</p>
+
   <h3>Container label overrides</h3>
   <p>When Label Overrides is enabled, these Docker labels take priority over the derived values
      (add them under a container's Extra Parameters, e.g. <code>-l npm-auto.port=8181</code>):</p>

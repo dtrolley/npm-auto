@@ -133,7 +133,7 @@ npm_login() {
 npm_api() {
   # npm_api <method> <path> [json-data] -> response body; retries once on 401
   local method=$1 path=$2 data=${3:-} resp http_code out NPM_TOKEN
-  for attempt in 1 2; do
+  for _ in 1 2; do
     NPM_TOKEN=$(cat "$TOKEN_FILE" 2>/dev/null)
     if [ -z "$NPM_TOKEN" ]; then
       npm_login || return 1

@@ -1,14 +1,39 @@
+# Build check: lints the plugin and builds the package into a scratch dir.
+# It does NOT publish anything - installs are served straight from main
+# (npm-auto.plg + archive/*.txz), so releases are cut locally with
+# ./pkg_build.sh and committed. See README "Building from source".
 name: Build Package
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Build package
+
+      - name: Install lint tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck php-cli libxml2-utils
+
+      - name: Shell syntax + shellcheck
         run: |
-          chmod +x pkg_build.sh
-          ./pkg_build.sh
+          files="pkg_build.sh src/usr/local/emhttp/plugins/npm-auto/scripts/*.sh src/usr/local/emhttp/plugins/npm-auto/event/*"
+          for f in $files; do bash -n "$f"; done
+          shellcheck -s bash $files
+
+      - name: PHP lint
+        run: |
+          for f in src/usr/local/emhttp/plugins/npm-auto/webGui/*.php; do php -l "$f"; done
+
+      - name: .plg is well-formed and its package exists with the right MD5
+        run: |
+          xmllint --noout npm-auto.plg
+          version=$(sed -n 's/<!ENTITY version "\(.*\)">/\1/p' npm-auto.plg)
+          md5=$(sed -n 's/<!ENTITY md5 "\(.*\)">/\1/p' npm-auto.plg)
+          pkg="archive/npm-auto-$version.txz"
+          test -f "$pkg" || { echo "::error::$pkg (referenced by npm-auto.plg) is missing"; exit 1; }
+          echo "$md5  $pkg" | md5sum -c -
+
+      - name: Build package (check mode - archive/ and .plg untouched)
+        run: ./pkg_build.sh --check

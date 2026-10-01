@@ -34,7 +34,7 @@
 
     <div class="form-group">
       <label for="label_overrides">Enable Label Overrides</label>
-      <input type="checkbox" id="label_overrides" name="label_overrides">
+      <input type="checkbox" id="label_overrides" name="label_overrides" checked>
     </div>
 
     <div class="form-group">

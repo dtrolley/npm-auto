@@ -117,9 +117,16 @@ CERTS_CACHE="[]"
 
 npm_login() {
   local resp token
-  resp=$(curl -s -m 15 -X POST "$NPM_BASE_URL/api/tokens" \
-    -H "Content-Type: application/json" \
-    -d "{\"identity\":\"$NPM_USER\",\"secret\":\"$NPM_PASS\"}")
+  if [ -z "$NPM_USER" ] || [ -z "$NPM_PASS" ]; then
+    log "NPM login skipped: set the NPM user and password in Settings > npm-auto"
+    return 1
+  fi
+  # Body built by jq (credentials may contain quotes or backslashes) and fed
+  # on stdin, so the password never appears on a command line (ps, /proc).
+  resp=$(jq -n --arg u "$NPM_USER" --arg p "$NPM_PASS" '{identity: $u, secret: $p}' \
+    | curl -s -m 15 -X POST "$NPM_BASE_URL/api/tokens" \
+        -H "Content-Type: application/json" \
+        --data-binary @-)
   token=$(echo "$resp" | jq -r '.token // empty' 2>/dev/null)
   if [ -n "$token" ]; then
     (umask 077; echo "$token" > "$TOKEN_FILE")
@@ -280,6 +287,13 @@ container_domain() {
   fi
   [ -n "$DEFAULT_DOMAIN" ] || return 1
   echo "$(echo "$c" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-').$DEFAULT_DOMAIN"
+}
+
+valid_domain() {
+  # valid_domain <name> -> exit 0 for a plain hostname. The domain ends up
+  # inside jq filters and JSON built by string interpolation, so anything
+  # else (quotes, spaces, a typo'd label) is refused rather than sent on.
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]]
 }
 
 #--- Proxy host management ---
@@ -517,6 +531,7 @@ reconcile() {
 
     if [ "$enabled" = "true" ]; then
       domain=$(container_domain "$c") || { [ -n "$m" ] || log "No domain for $c (set DEFAULT_DOMAIN or npm-auto.domain label); skipping"; continue; }
+      valid_domain "$domain" || { log "Invalid domain '$domain' for $c (check DEFAULT_DOMAIN / npm-auto.domain label); skipping"; continue; }
       if [ -n "$m" ]; then
         port=$(container_port "$c") || port=$(echo "$HOSTS_CACHE" | jq -r --argjson id "$(echo "$m" | jq -r .id)" '.[] | select(.id==$id) | .forward_port // empty')
         [ -n "$port" ] || continue

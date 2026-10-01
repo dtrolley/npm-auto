@@ -12,7 +12,7 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
-### 2026.09.28a
+### 2026.09.28-1
 - New Subdomain column on the Docker tab, after Auto Proxy: shows the name
   each proxied container is served at, and a click sets an override (kept in
   state.json, so no container recreate). A live entry is renamed on the next
@@ -26,7 +26,7 @@
 - Docker tab only refetches state when rows are added, not on every live
   CPU/memory update; script and stylesheet are cache-busted on upgrade
 
-### 2026.07.18b
+### 2026.07.18-3
 - Stamp-based auto-adoption: entries bearing the npm_auto meta stamp are
   re-adopted on domain OR target match (heals container renames and plugin
   reinstalls); adopted entries are stamped too
@@ -41,7 +41,7 @@
   bulk-updates every managed proxy host automatically (re-detected each
   reconcile cycle, no daemon restart needed)
 
-### 2026.07.17c
+### 2026.07.17-9
 - Strict adoption: existing entries are adopted only when domain AND forward
   target both match; conflicts reject the toggle with a specific error
 - Adopted hosts are fully managed thereafter (same policies as created ones)
@@ -49,7 +49,7 @@
 - Label override syntax (npm-auto.domain / npm-auto.port) documented on the
   settings page
 
-### 2026.07.17b
+### 2026.07.17-7
 - Auto-select an unexpired NPM certificate (exact or wildcard match) for new
   proxy hosts; force SSL when one is found
 - Reconcile drift: created hosts follow default-domain/port/cert changes
@@ -58,7 +58,7 @@
 - Cleanup controls on the settings page + prompt when disabling the plugin
 - Uninstall never touches NPM entries
 
-### 2026.07.17
+### 2026.07.17-2
 - Fix settings persistence (PHP variable-scope bug) and CSRF token handling
 - Unify settings as JSON shared by the settings page and daemon
 - Remove debug logging that leaked session cookies to a public share

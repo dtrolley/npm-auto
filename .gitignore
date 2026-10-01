@@ -1,0 +1,15 @@
+# macOS metadata
+.DS_Store
+._*
+
+# pkg_build.sh staging dirs (older versions staged under ./tmp)
+/tmp/
+
+# Editor / OS noise
+*.swp
+*~
+.idea/
+.vscode/
+
+# Note: archive/*.txz is NOT ignored - the .plg installs packages straight
+# from archive/ on main, so built packages must be committed.

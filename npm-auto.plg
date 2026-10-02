@@ -6,12 +6,35 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.09.28-1">
-<!ENTITY md5 "ee4a564e1f6b7581c720a0ca666222bb">
+<!ENTITY version "2026.10.01">
+<!ENTITY md5 "ec1ddc6979ed34573cad78e142e76013">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="folder-open-o" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="random" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.10.01
+- Settings page rebuilt the Unraid way: Apply/Done, inline help, Yes/No
+  choices, a status line, and settings kept in npm-auto.cfg (written by
+  Unraid's update.php). Existing settings are converted on upgrade; the old
+  var/settings.json is kept as settings.json.migrated
+- Enabling or disabling now starts or stops the service; Apply restarts it so
+  changes take effect at once. Disabling leaves NPM untouched
+- NPM host may be left blank to mean this server
+- The saved NPM password is never sent to the browser; blank keeps it
+- Disable all / Delete all work with the service off; new View log button
+- Fix: the Auto Proxy switch borrowed the Docker page's "autostart" class,
+  which broke the Basic/Advanced view switch. It now uses Unraid's own
+  switch widget, found by column position (works in translated webGUIs)
+- Docker tab warns on the Auto Proxy header when the service is off or
+  cannot reach NPM
+- Daemon: one docker inspect per pass instead of several per container,
+  and only switched-on or managed containers are examined; stops promptly
+- getState also reports service, running, health and version (unraid-mobile)
+- Switch and subdomain changes are locked against each other and validated
+  against existing containers; changes require POST
+- Login JSON built with jq and passed on stdin; non-hostname domains refused
+- Build fixed for Linux/CI; same-day versions zero-padded
+
 ### 2026.09.28-1
 - New Subdomain column on the Docker tab, after Auto Proxy: shows the name
   each proxied container is served at, and a click sets an override (kept in
@@ -82,8 +105,10 @@
             find /boot/config/plugins/&name;/ -name "&name;-*.txz" ! -name "&name;-&version;.txz" -delete
             mkdir -p /boot/config/plugins/&name;/var
             echo "&version;" > /boot/config/plugins/&name;/version
-            # (Re)start the daemon so upgrades pick up new code
-            &plugdir;/scripts/npm-auto-service.sh restart
+            &plugdir;/scripts/migrate-settings.sh
+            # Start, restart or stop the daemon to match the settings, so an
+            # upgrade runs the new code at once
+            &plugdir;/scripts/rc.npm-auto apply
             echo ""
             echo "----------------------------------------------------"
             echo " &name; has been installed."
@@ -95,7 +120,7 @@
 
     <FILE Run="/bin/bash" Method="remove">
         <INLINE>
-            &plugdir;/scripts/npm-auto-service.sh stop
+            &plugdir;/scripts/rc.npm-auto stop
             removepkg &name;-&version;
             rm -rf &plugdir;
             rm -rf /boot/config/plugins/&name;

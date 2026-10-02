@@ -72,7 +72,7 @@ find "$STAGE" \( -name ".DS_Store" -o -name "._*" \) -exec rm -f {} +
 # (A checkout's modes depend on the umask and on git's core.fileMode.)
 find "$STAGE" -type d -exec chmod 755 {} +
 find "$STAGE" -type f -exec chmod 644 {} +
-chmod 755 "$STAGE/$PLUGIN_SUBDIR"/scripts/*.sh \
+chmod 755 "$STAGE/$PLUGIN_SUBDIR"/scripts/* \
           "$STAGE/$PLUGIN_SUBDIR"/event/* \
           "$STAGE/$PLUGIN_SUBDIR/webGui/settings.php"
 
@@ -91,17 +91,23 @@ fi
 
 #--- Verify ---
 LISTING=$(tar -tvJf "$FILENAME" 2>/dev/null)
-for f in npm-auto.page npm-auto.Docker.page npm-auto.js npm-auto.css \
-         scripts/npm-auto-daemon.sh scripts/npm-auto-service.sh \
+for f in npm-auto.page npm-auto.Docker.page npm-auto.js npm-auto.css default.cfg \
+         scripts/npm-auto-daemon.sh scripts/rc.npm-auto scripts/migrate-settings.sh \
          event/started event/stopping_svcs \
-         webGui/settings.php webGui/settings_ui.php; do
+         include/common.php include/update.php webGui/settings.php; do
   echo "$LISTING" | grep -q "\./$PLUGIN_SUBDIR/$f\$" \
     || { echo "Package is missing $PLUGIN_SUBDIR/$f" >&2; exit 1; }
 done
 if echo "$LISTING" | grep -q -E '\.DS_Store|/\._'; then
   echo "Package contains macOS metadata" >&2; exit 1
 fi
-if echo "$LISTING" | awk '{print $2}' | grep -v -q -E '^(0/0|root/root)$'; then
+# GNU tar lists owner/group as one field ("root/root"), bsdtar as two ("0 0").
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  OWNERS=$(echo "$LISTING" | awk '{print $2}')
+else
+  OWNERS=$(echo "$LISTING" | awk '{print $3 "/" $4}')
+fi
+if echo "$OWNERS" | grep -v -q -E '^(0/0|root/root)$'; then
   echo "Package contains entries not owned by root (0/0)" >&2; exit 1
 fi
 

@@ -2,28 +2,47 @@
 //==============================================================================
 // settings.php
 //
-// AJAX backend for the npm-auto Docker-tab columns.
-// Actions: getState, setToggle, setSubdomain, cleanup
+// AJAX backend for the npm-auto Docker-tab columns, and for unraid-mobile,
+// which reads and drives the same actions:
+//   GET  getState                          everything the columns show
+//   POST setToggle    container, enabled   the Auto Proxy switch
+//   POST setSubdomain container, subdomain an override; empty clears it
+//   POST cleanup      mode                 disable|delete every managed host
+// Every answer is JSON with ok: true, or ok: false and an error to show.
 //==============================================================================
 
-$BASE           = "/boot/config/plugins/npm-auto";
-$STATE_FILE     = "{$BASE}/var/state.json";
-$CLEANUP_FILE   = "{$BASE}/var/cleanup_request.json";
-$SETTINGS_FILE  = "{$BASE}/var/settings.json";
-$MANAGED_FILE   = "{$BASE}/var/managed.json";
-$HOSTS_SNAPSHOT = "/var/run/npm-auto-hosts.json";  // published by the daemon
+require_once '/usr/local/emhttp/plugins/npm-auto/include/common.php';
+
+$MANAGED_FILE   = NPM_AUTO_MANAGED;
+$HOSTS_SNAPSHOT = NPM_AUTO_HOSTS;
 
 function read_state() {
-    global $STATE_FILE;
-    if (!file_exists($STATE_FILE)) return [];
-    $state = json_decode(file_get_contents($STATE_FILE), true);
-    return (json_last_error() === JSON_ERROR_NONE && is_array($state)) ? $state : [];
+    return npm_auto_read_json(NPM_AUTO_STATE) ?? [];
 }
 
-// The host's LAN IP: the forward host npm-auto writes, and the one hand-made
-// entries use for containers with published ports.
+// Read-modify-write of state.json under a lock, so a toggle from the Docker
+// tab and one from unraid-mobile cannot drop each other's change.
+// $fn receives the state and returns [new state or null for no write, reply].
+function with_state($fn) {
+    $lock = fopen('/var/run/npm-auto-state.lock', 'c');
+    flock($lock, LOCK_EX);
+    [$state, $reply] = $fn(read_state());
+    if ($state !== null && !npm_auto_write_json(NPM_AUTO_STATE, (object)$state)) {
+        $reply = ['ok' => false, 'error' => 'Failed to write the state file.'];
+    }
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    echo json_encode($reply);
+}
+
 function lan_ip() {
-    return preg_match('/src (\S+)/', shell_exec("ip route get 1 2>/dev/null") ?? '', $m) ? $m[1] : '';
+    return npm_auto_lan_ip();
+}
+
+// Docker's own name grammar, and the container has to exist.
+function valid_container($container) {
+    if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/', $container)) return false;
+    return docker_fmt($container, '{{.Name}}') !== '';
 }
 
 // NPM entries npm-auto does not manage, matched to the container they serve so
@@ -85,10 +104,10 @@ function match_unmanaged($containers, $managed, $dd) {
 // the entries the daemon manages (the domain in use), hand-made NPM entries
 // for the rest, and enough to predict the domain of a container not yet proxied.
 function get_state() {
-    global $SETTINGS_FILE, $MANAGED_FILE;
-    $settings  = read_json_file($SETTINGS_FILE) ?? [];
-    $labels_on = ($settings['LABEL_OVERRIDES'] ?? true) === true;
-    $dd        = strtolower(trim($settings['DEFAULT_DOMAIN'] ?? ''));
+    global $MANAGED_FILE;
+    $cfg       = npm_auto_cfg();
+    $labels_on = npm_auto_yes($cfg, 'LABEL_OVERRIDES');
+    $dd        = npm_auto_default_domain($cfg);
 
     $managed_raw = read_json_file($MANAGED_FILE) ?? [];
     $managed = [];
@@ -124,6 +143,12 @@ function get_state() {
         'unmanaged'      => (object)match_unmanaged($containers, $managed_raw, $dd),
         'labels'         => (object)$labels,
         'default_domain' => $dd,
+        // Added 2026.10: whether anything will act on the switches, and how
+        // the last pass against NPM went.
+        'service'        => ($cfg['SERVICE'] ?? '') === 'enable',
+        'running'        => npm_auto_running(),
+        'health'         => npm_auto_status(),
+        'version'        => npm_auto_version(),
     ]);
 }
 
@@ -134,9 +159,7 @@ function docker_fmt($container, $fmt) {
 }
 
 function read_json_file($path) {
-    if (!file_exists($path)) return null;
-    $decoded = json_decode(file_get_contents($path), true);
-    return is_array($decoded) ? $decoded : null;
+    return npm_auto_read_json($path);
 }
 
 // What the daemon names a container when nothing overrides it.
@@ -153,15 +176,14 @@ function valid_subdomain($sub) {
 // Mirror of the daemon's domain/port derivation. Returns [domain, port, error].
 // $sub is a candidate subdomain override; null means "whatever state.json holds".
 function compute_target($container, $sub = null) {
-    global $SETTINGS_FILE;
-    $settings  = read_json_file($SETTINGS_FILE) ?? [];
-    $labels_on = ($settings['LABEL_OVERRIDES'] ?? true) === true;
+    $cfg       = npm_auto_cfg();
+    $labels_on = npm_auto_yes($cfg, 'LABEL_OVERRIDES');
+    $dd        = npm_auto_default_domain($cfg);
 
     if ($sub === null) $sub = read_state()[$container]['subdomain'] ?? '';
 
     $domain = '';
     if ($sub !== '') {
-        $dd = trim($settings['DEFAULT_DOMAIN'] ?? '');
         if ($dd === '') return [null, null, 'No default domain configured in npm-auto settings.'];
         $domain = "$sub.$dd";
     }
@@ -170,7 +192,6 @@ function compute_target($container, $sub = null) {
         if ($d !== '' && $d !== '<no value>') $domain = $d;
     }
     if ($domain === '') {
-        $dd = trim($settings['DEFAULT_DOMAIN'] ?? '');
         if ($dd === '') return [null, null, 'No default domain configured in npm-auto settings.'];
         $domain = default_subdomain($container) . ".$dd";
     }
@@ -263,10 +284,9 @@ function find_conflict($container, $sub = null) {
 }
 
 function set_toggle($data) {
-    global $STATE_FILE;
     $container = trim($data['container'] ?? '');
-    if ($container === '') {
-        echo json_encode(['ok' => false, 'error' => 'Missing container name.']);
+    if (!valid_container($container)) {
+        echo json_encode(['ok' => false, 'error' => 'No such container.']);
         return;
     }
     $enabled = ($data['enabled'] ?? '') === 'true';
@@ -279,41 +299,28 @@ function set_toggle($data) {
         }
     }
 
-    $dir = dirname($STATE_FILE);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-        echo json_encode(['ok' => false, 'error' => 'Cannot create state directory.']);
-        return;
-    }
-
-    $state = read_state();
-
-    // Skip no-op writes: state.json lives on the flash device
-    if (($state[$container]['enabled'] ?? null) === $enabled) {
-        echo json_encode(['ok' => true, 'state' => $state]);
-        return;
-    }
-    $state[$container]['enabled'] = $enabled;
-
-    if (file_put_contents($STATE_FILE, json_encode($state, JSON_PRETTY_PRINT)) !== false) {
-        echo json_encode(['ok' => true, 'state' => $state]);
-    } else {
-        echo json_encode(['ok' => false, 'error' => 'Failed to write state file.']);
-    }
+    with_state(function ($state) use ($container, $enabled) {
+        // Skip no-op writes: state.json lives on the flash device
+        if (($state[$container]['enabled'] ?? false) === $enabled) {
+            return [null, ['ok' => true, 'state' => $state]];
+        }
+        $state[$container]['enabled'] = $enabled;
+        return [$state, ['ok' => true, 'state' => $state]];
+    });
 }
 
 // Set or clear a container's subdomain override. An empty value, or one equal
 // to the name the container would get anyway, clears it. The daemon renames a
 // live NPM entry on its next pass.
 function set_subdomain($data) {
-    global $STATE_FILE, $SETTINGS_FILE, $HOSTS_SNAPSHOT, $MANAGED_FILE;
+    global $MANAGED_FILE;
     $container = trim($data['container'] ?? '');
-    if ($container === '') {
-        echo json_encode(['ok' => false, 'error' => 'Missing container name.']);
+    if (!valid_container($container)) {
+        echo json_encode(['ok' => false, 'error' => 'No such container.']);
         return;
     }
 
-    $settings = read_json_file($SETTINGS_FILE) ?? [];
-    $dd = strtolower(trim($settings['DEFAULT_DOMAIN'] ?? ''));
+    $dd = npm_auto_default_domain(npm_auto_cfg());
     if ($dd === '') {
         echo json_encode(['ok' => false, 'error' => 'Set a default domain in npm-auto settings first.']);
         return;
@@ -329,7 +336,6 @@ function set_subdomain($data) {
     }
 
     $state = read_state();
-
     if ($sub !== '') {
         foreach ($state as $other => $s) {
             if ($other !== $container && ($s['subdomain'] ?? '') === $sub) {
@@ -357,65 +363,55 @@ function set_subdomain($data) {
         }
     }
 
-    // Skip no-op writes: state.json lives on the flash device
-    if (($state[$container]['subdomain'] ?? '') === $sub) {
-        echo json_encode(['ok' => true, 'state' => $state]);
-        return;
-    }
-    if ($sub === '') {
-        unset($state[$container]['subdomain']);
-        if (empty($state[$container])) unset($state[$container]);
-    } else {
-        $state[$container]['subdomain'] = $sub;
-    }
-
-    $dir = dirname($STATE_FILE);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-        echo json_encode(['ok' => false, 'error' => 'Cannot create state directory.']);
-        return;
-    }
-    if (file_put_contents($STATE_FILE, json_encode((object)$state, JSON_PRETTY_PRINT)) !== false) {
-        echo json_encode(['ok' => true, 'state' => $state]);
-    } else {
-        echo json_encode(['ok' => false, 'error' => 'Failed to write state file.']);
-    }
+    with_state(function ($state) use ($container, $sub) {
+        // Skip no-op writes: state.json lives on the flash device
+        if (($state[$container]['subdomain'] ?? '') === $sub) {
+            return [null, ['ok' => true, 'state' => $state]];
+        }
+        if ($sub === '') {
+            unset($state[$container]['subdomain']);
+            if (empty($state[$container])) unset($state[$container]);
+        } else {
+            $state[$container]['subdomain'] = $sub;
+        }
+        return [$state, ['ok' => true, 'state' => $state]];
+    });
 }
 
 function request_cleanup($data) {
-    global $CLEANUP_FILE;
     $mode = $data['mode'] ?? '';
-    if (!in_array($mode, ['disable', 'delete'])) {
+    if (!in_array($mode, ['disable', 'delete'], true)) {
         echo json_encode(['ok' => false, 'error' => 'Invalid cleanup mode.']);
         return;
     }
-    $dir = dirname($CLEANUP_FILE);
-    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-        echo json_encode(['ok' => false, 'error' => 'Cannot create var directory.']);
+    if (!npm_auto_write_json(NPM_AUTO_CLEANUP, ['action' => $mode])) {
+        echo json_encode(['ok' => false, 'error' => 'Failed to write cleanup request.']);
         return;
     }
-    if (file_put_contents($CLEANUP_FILE, json_encode(['action' => $mode])) !== false) {
-        echo json_encode(['ok' => true]);
-    } else {
-        echo json_encode(['ok' => false, 'error' => 'Failed to write cleanup request.']);
+    // The daemon picks the request up on its next pass; with the service
+    // disabled there is no daemon, so run it once in the background.
+    if (!npm_auto_running()) {
+        exec(escapeshellarg(NPM_AUTO_RC) . ' cleanup >/dev/null 2>&1 &');
     }
+    echo json_encode(['ok' => true]);
 }
 
 //--- Main ---
 header('Content-Type: application/json');
 
-switch ($_REQUEST['action'] ?? '') {
-    case 'getState':
-        get_state();
-        break;
-    case 'setToggle':
-        set_toggle($_POST);
-        break;
-    case 'setSubdomain':
-        set_subdomain($_POST);
-        break;
-    case 'cleanup':
-        request_cleanup($_POST);
-        break;
-    default:
-        echo json_encode(['ok' => false, 'error' => 'Unknown action.']);
+$action = $_REQUEST['action'] ?? '';
+$is_post = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+
+if ($action === 'getState') {
+    get_state();
+} elseif (!$is_post && in_array($action, ['setToggle', 'setSubdomain', 'cleanup'], true)) {
+    echo json_encode(['ok' => false, 'error' => 'Use POST.']);
+} elseif ($action === 'setToggle') {
+    set_toggle($_POST);
+} elseif ($action === 'setSubdomain') {
+    set_subdomain($_POST);
+} elseif ($action === 'cleanup') {
+    request_cleanup($_POST);
+} else {
+    echo json_encode(['ok' => false, 'error' => 'Unknown action.']);
 }

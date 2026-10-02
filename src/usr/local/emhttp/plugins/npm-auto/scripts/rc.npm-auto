@@ -1,0 +1,84 @@
+#!/bin/bash
+#==============================================================================
+# rc.npm-auto - start, stop and apply settings for the npm-auto daemon
+#
+#   start | stop | restart | status
+#   apply     start or stop to match SERVICE in npm-auto.cfg; run by
+#             /update.php after the settings page saves, and at array start
+#   cleanup   run a pending cleanup request now, without the daemon
+#==============================================================================
+
+PIDFILE="/var/run/npm-auto.pid"
+PLUGIN_DIR="/usr/local/emhttp/plugins/npm-auto"
+DAEMON="$PLUGIN_DIR/scripts/npm-auto-daemon.sh"
+CFG="/boot/config/plugins/npm-auto/npm-auto.cfg"
+
+is_running() {
+  [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+}
+
+service_enabled() {
+  # Same lookup as the daemon: npm-auto.cfg, else default.cfg.
+  local f
+  for f in "$CFG" "$PLUGIN_DIR/default.cfg"; do
+    if [ -f "$f" ] && grep -q '^SERVICE=' "$f"; then
+      grep -q '^SERVICE="enable"' "$f"
+      return
+    fi
+  done
+  return 1
+}
+
+start() {
+  if is_running; then
+    echo "npm-auto is already running."
+    return 0
+  fi
+  echo "Starting npm-auto..."
+  setsid "$DAEMON" </dev/null >/dev/null 2>&1 &
+  echo $! > "$PIDFILE"
+}
+
+stop() {
+  if ! is_running; then
+    rm -f "$PIDFILE"
+    return 0
+  fi
+  echo "Stopping npm-auto..."
+  local pid
+  pid=$(cat "$PIDFILE")
+  kill "$pid"
+  # The daemon may be mid-request to NPM; give it a moment to finish.
+  for _ in 1 2 3 4 5; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+  rm -f "$PIDFILE"
+}
+
+apply() {
+  if service_enabled; then
+    # Restart so changed settings take effect at once, not on the next pass.
+    stop
+    start
+  else
+    stop
+  fi
+}
+
+case "$1" in
+  start)   start ;;
+  stop)    stop ;;
+  restart) stop; start ;;
+  apply)   apply ;;
+  cleanup) is_running || "$DAEMON" --cleanup ;;
+  status)
+    if is_running; then echo "npm-auto is running (pid $(cat "$PIDFILE"))."
+    else echo "npm-auto is not running."; exit 1; fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|apply|status|cleanup}"
+    exit 1
+    ;;
+esac

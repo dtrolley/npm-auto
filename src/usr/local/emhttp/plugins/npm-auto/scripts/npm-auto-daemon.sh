@@ -6,7 +6,11 @@
 # Reconciliation daemon: converges Nginx Proxy Manager proxy hosts with the
 # desired state selected via the Docker-tab toggles.
 #
+#   npm-auto-daemon.sh            run until stopped (started by rc.npm-auto)
+#   npm-auto-daemon.sh --cleanup  apply a pending cleanup request and exit
+#
 # Ownership split (avoids write races with the webGui PHP):
+#   npm-auto.cfg         - settings, written by /update.php (settings page)
 #   state.json           - written ONLY by webGui (desired state)
 #   managed.json         - written ONLY by this daemon (hosts it manages)
 #   cleanup_request.json - written by webGui, consumed (deleted) by daemon
@@ -20,36 +24,47 @@
 #==============================================================================
 
 #--- Configuration ---
+PLUGIN_DIR="/usr/local/emhttp/plugins/npm-auto"
 BASE_DIR="/boot/config/plugins/npm-auto"
 VAR_DIR="$BASE_DIR/var"
-SETTINGS_FILE="$VAR_DIR/settings.json"
+CFG_FILE="$BASE_DIR/npm-auto.cfg"
 STATE_FILE="$VAR_DIR/state.json"
 MANAGED_FILE="$VAR_DIR/managed.json"
 CLEANUP_FILE="$VAR_DIR/cleanup_request.json"
 LOG_FILE="/var/log/npm-auto.log"
+STATUS_FILE="/var/run/npm-auto-status.json"
 RECONCILE_INTERVAL=15
 
-#--- Load settings (settings.json written by the plugin settings page) ---
-setting() {
-  # setting <key> <default>
-  local val=""
-  if [ -f "$SETTINGS_FILE" ]; then
-    val=$(jq -r --arg k "$1" '.[$k] // empty' "$SETTINGS_FILE" 2>/dev/null)
-  fi
-  echo "${val:-$2}"
+#--- Settings: default.cfg overlaid with npm-auto.cfg ---
+# Read line by line rather than sourced: the values are typed into a web form.
+declare -A CFG
+read_cfg() {
+  local f line key val
+  CFG=()
+  for f in "$PLUGIN_DIR/default.cfg" "$CFG_FILE"; do
+    [ -f "$f" ] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+      [[ "$line" =~ ^([A-Z_]+)=\"(.*)\"$ ]] || continue
+      key=${BASH_REMATCH[1]}
+      val=${BASH_REMATCH[2]}
+      CFG[$key]=$val
+    done < "$f"
+  done
 }
 
 load_settings() {
-  NPM_ENABLED=$(setting NPM_ENABLED "false")
-  NPM_HOST=$(setting NPM_HOST "127.0.0.1")
-  NPM_PORT=$(setting NPM_PORT "81")
-  NPM_USER=$(setting NPM_USER "")
-  NPM_PASS=$(setting NPM_PASS "")
-  DEFAULT_DOMAIN=$(setting DEFAULT_DOMAIN "")
-  LABEL_OVERRIDES=$(setting LABEL_OVERRIDES "true")
-  TOGGLE_OFF_ACTION=$(setting TOGGLE_OFF_ACTION "disable")   # keep|disable|delete
-  AUTO_SSL=$(setting AUTO_SSL "true")
-  NPM_BASE_URL="http://$NPM_HOST:$NPM_PORT"
+  read_cfg
+  SERVICE=${CFG[SERVICE]:-disable}
+  NPM_HOST=${CFG[NPM_HOST]:-}
+  NPM_PORT=${CFG[NPM_PORT]:-81}
+  NPM_USER=${CFG[NPM_USER]:-}
+  NPM_PASS=${CFG[NPM_PASS]:-}
+  DEFAULT_DOMAIN=$(echo "${CFG[DEFAULT_DOMAIN]:-}" | tr '[:upper:]' '[:lower:]')
+  LABEL_OVERRIDES=${CFG[LABEL_OVERRIDES]:-yes}
+  AUTO_SSL=${CFG[AUTO_SSL]:-yes}
+  TOGGLE_OFF_ACTION=${CFG[TOGGLE_OFF_ACTION]:-disable}   # keep|disable|delete
+  # A blank host means NPM runs here, on the address entries forward to.
+  NPM_BASE_URL="http://${NPM_HOST:-$FORWARD_HOST}:$NPM_PORT"
 }
 
 #--- Logging ---
@@ -83,6 +98,16 @@ trim_log() {
   fi
 }
 
+#--- Status, for the settings page and getState ---
+write_status() {
+  # write_status <ok|error> [message]
+  local tmp
+  tmp=$(mktemp)
+  jq -n --arg npm "$1" --arg err "${2:-}" --arg fh "$FORWARD_HOST" --argjson pid $$ \
+    '{time: now | floor, pid: $pid, npm: $npm, error: (if $err == "" then null else $err end), forward_host: $fh}' \
+    > "$tmp" && chmod 644 "$tmp" && mv "$tmp" "$STATUS_FILE"
+}
+
 #--- Managed-hosts bookkeeping ---
 managed_file_or_empty() {
   [ -f "$MANAGED_FILE" ] || echo "{}" > "$MANAGED_FILE"
@@ -99,6 +124,11 @@ managed_put() {
   local tmp
   tmp=$(mktemp)
   jq --arg c "$1" --argjson v "$2" '.[$c] = $v' "$(managed_file_or_empty)" > "$tmp" && mv "$tmp" "$MANAGED_FILE"
+}
+
+managed_entry() {
+  # managed_entry <id> <domain> -> json for a live (not disabled) managed host
+  jq -nc --argjson id "$1" --arg d "$2" '{id: $id, domain: $d, disabled: false}'
 }
 
 managed_del() {
@@ -133,7 +163,7 @@ npm_login() {
     log "NPM login OK ($NPM_BASE_URL)"
     return 0
   fi
-  log "NPM login FAILED: $(echo "$resp" | head -c 300)"
+  log "NPM login FAILED ($NPM_BASE_URL): $(echo "$resp" | tr -s '[:space:]' ' ' | head -c 300)"
   return 1
 }
 
@@ -168,7 +198,7 @@ npm_api() {
       echo "$out"
       return 0
     fi
-    log "NPM API $method $path failed (HTTP $http_code): $(echo "$out" | head -c 300)"
+    log "NPM API $method $path failed (HTTP $http_code): $(echo "$out" | tr -s '[:space:]' ' ' | head -c 300)"
     return 1
   done
   return 1
@@ -184,7 +214,7 @@ refresh_caches() {
   CERTS_CACHE=$c
   # Publish a snapshot so the webGui can conflict-check toggles synchronously
   tmp=$(mktemp)
-  printf '%s' "$HOSTS_CACHE" > "$tmp" && mv "$tmp" "$HOSTS_SNAPSHOT" && chmod 644 "$HOSTS_SNAPSHOT"
+  printf '%s' "$HOSTS_CACHE" > "$tmp" && chmod 644 "$tmp" && mv "$tmp" "$HOSTS_SNAPSHOT"
   return 0
 }
 
@@ -194,12 +224,13 @@ host_live() {
 }
 
 host_update() {
-  # host_update <id> <jq-mutation-filter>  e.g. '.enabled = true'
+  # host_update <id> <jq-mutation-filter> [jq args...]  e.g. '.enabled = true'
   # Fetches the live object, applies the mutation, strips read-only fields, PUTs.
   local id=$1 filter=$2 live payload
+  shift 2
   live=$(host_live "$id")
   [ -n "$live" ] || return 1
-  payload=$(echo "$live" | jq -c "$filter
+  payload=$(echo "$live" | jq -c "$@" "$filter
     | .locations = (.locations // [])
     | del(.id, .created_on, .modified_on, .owner_user_id, .owner,
           .certificate, .access_list, .use_default_location, .ipv6,
@@ -229,70 +260,85 @@ pick_cert() {
 }
 
 #--- Container introspection ---
-container_label() {
-  # container_label <container> <label>
-  docker inspect --format "{{ index .Config.Labels \"$2\" }}" "$1" 2>/dev/null
+# One `docker inspect` per pass for every container, rather than several per
+# container. Ports are the live bindings, so a stopped container has none.
+declare -A CT_RUNNING CT_LABEL_DOMAIN CT_LABEL_PORT CT_WEBUI_PORT CT_MIN_PORT
+
+load_containers() {
+  # -> 0 with the CT_* maps filled, 1 when docker does not answer or lists nothing
+  local ids name running ldomain lport wport mport sep=$'\x1f'
+  CT_RUNNING=() CT_LABEL_DOMAIN=() CT_LABEL_PORT=() CT_WEBUI_PORT=() CT_MIN_PORT=()
+  ids=$(docker ps -aq 2>/dev/null) || return 1
+  [ -n "$ids" ] || return 1
+  # shellcheck disable=SC2086 # one id per word
+  while IFS=$sep read -r name running ldomain lport wport mport; do
+    [ -n "$name" ] || continue
+    CT_RUNNING[$name]=$running
+    CT_LABEL_DOMAIN[$name]=$ldomain
+    CT_LABEL_PORT[$name]=$lport
+    CT_WEBUI_PORT[$name]=$wport
+    CT_MIN_PORT[$name]=$mport
+  done < <(docker inspect $ids 2>/dev/null | jq -r '
+    .[]
+    | (.NetworkSettings.Ports // {}) as $ports
+    # Unraid template WebUI label, e.g. "http://[IP]:[PORT:8989]/"
+    | ((.Config.Labels["net.unraid.docker.webui"] // "") | capture("\\[PORT:(?<p>[0-9]+)\\]").p // "") as $wp
+    | [ (.Name | ltrimstr("/")),
+        (.State.Running | tostring),
+        (.Config.Labels["npm-auto.domain"] // ""),
+        (.Config.Labels["npm-auto.port"] // ""),
+        ([ $ports | to_entries[] | select(.value != null and $wp != "" and (.key | startswith($wp + "/")))
+           | .value[0].HostPort ][0] // ""),
+        ([ $ports | to_entries[] | select(.value != null) | .value[0].HostPort | tonumber? ] | min // "" | tostring)
+      ] | join("\u001f")')
+  # Nothing listed reads as "every managed container is gone", which would
+  # apply the off-policy to all of them; a docker hiccup must not do that.
+  [ ${#CT_RUNNING[@]} -gt 0 ]
 }
 
 container_port() {
   # Best published host port for <container>:
   #   npm-auto.port label > Unraid WebUI label port > lowest published host port
-  local c=$1 port=""
-
-  if [ "$LABEL_OVERRIDES" = "true" ]; then
-    port=$(container_label "$c" "npm-auto.port")
-    if [ -n "$port" ] && [ "$port" != "<no value>" ]; then
-      echo "$port"
+  local c=$1 label=${CT_LABEL_PORT[$1]:-}
+  if [ "$LABEL_OVERRIDES" = "yes" ] && [ -n "$label" ]; then
+    if [[ "$label" =~ ^[0-9]{1,5}$ ]]; then
+      echo "$label"
       return 0
     fi
+    log "Ignoring npm-auto.port label '$label' on $c: not a port number"
   fi
-
-  # Unraid template WebUI label, e.g. "http://[IP]:[PORT:8989]/"
-  local webui inner
-  webui=$(container_label "$c" "net.unraid.docker.webui")
-  if [[ "$webui" =~ \[PORT:([0-9]+)\] ]]; then
-    inner="${BASH_REMATCH[1]}"
-    port=$(docker inspect --format \
-      "{{ range \$p, \$conf := .NetworkSettings.Ports }}{{ if \$conf }}{{ \$p }} {{ (index \$conf 0).HostPort }}{{ \"\n\" }}{{ end }}{{ end }}" \
-      "$c" 2>/dev/null | awk -v p="$inner" '$1 ~ "^"p"/" {print $2; exit}')
-    if [ -n "$port" ]; then
-      echo "$port"
-      return 0
-    fi
+  if [ -n "${CT_WEBUI_PORT[$c]:-}" ]; then
+    echo "${CT_WEBUI_PORT[$c]}"
+    return 0
   fi
-
-  # Fallback: lowest published host port
-  port=$(docker inspect --format \
-    "{{ range \$p, \$conf := .NetworkSettings.Ports }}{{ if \$conf }}{{ (index \$conf 0).HostPort }}{{ \"\n\" }}{{ end }}{{ end }}" \
-    "$c" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | head -n1)
-  [ -n "$port" ] && { echo "$port"; return 0; }
+  if [ -n "${CT_MIN_PORT[$c]:-}" ]; then
+    echo "${CT_MIN_PORT[$c]}"
+    return 0
+  fi
   return 1
 }
 
 container_domain() {
+  # container_domain <container> <state-json>
   # Subdomain override (set from the Docker tab, kept in state.json)
   #   > npm-auto.domain label > <lowercased-container>.<DEFAULT_DOMAIN>
-  local c=$1 domain="" sub=""
-  sub=$(jq -r --arg c "$c" '.[$c].subdomain // empty' "$STATE_FILE" 2>/dev/null)
+  local c=$1 sub
+  sub=$(echo "$2" | jq -r --arg c "$c" '.[$c].subdomain // empty')
   if [ -n "$sub" ] && [ -n "$DEFAULT_DOMAIN" ]; then
     echo "$sub.$DEFAULT_DOMAIN"
     return 0
   fi
-  if [ "$LABEL_OVERRIDES" = "true" ]; then
-    domain=$(container_label "$c" "npm-auto.domain")
-    if [ -n "$domain" ] && [ "$domain" != "<no value>" ]; then
-      echo "$domain"
-      return 0
-    fi
+  if [ "$LABEL_OVERRIDES" = "yes" ] && [ -n "${CT_LABEL_DOMAIN[$c]:-}" ]; then
+    echo "${CT_LABEL_DOMAIN[$c]}"
+    return 0
   fi
   [ -n "$DEFAULT_DOMAIN" ] || return 1
   echo "$(echo "$c" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-').$DEFAULT_DOMAIN"
 }
 
 valid_domain() {
-  # valid_domain <name> -> exit 0 for a plain hostname. The domain ends up
-  # inside jq filters and JSON built by string interpolation, so anything
-  # else (quotes, spaces, a typo'd label) is refused rather than sent on.
+  # valid_domain <name> -> exit 0 for a plain hostname. Refused otherwise
+  # (quotes, spaces, a typo'd label) rather than sent on to NPM.
   [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]]
 }
 
@@ -309,15 +355,20 @@ is_stamped() {
   [ "$(echo "$1" | jq -r '.meta.npm_auto // false')" = "true" ]
 }
 
+is_disabled() {
+  # is_disabled <host-json> -> exit 0 if NPM has the entry switched off
+  [ "$(echo "$1" | jq -r '.enabled == false or .enabled == 0')" = "true" ]
+}
+
 adopt_entry() {
   # adopt_entry <container> <id> <domain> <host-json>
   local c=$1 id=$2 domain=$3 match=$4
-  managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"disabled\": false}"
+  managed_put "$c" "$(managed_entry "$id" "$domain")"
   if ! is_stamped "$match"; then
     host_update "$id" '.meta = ((.meta // {}) + {npm_auto: true})' \
       && log "Stamped adopted host #$id ($c) with npm_auto marker"
   fi
-  if [ "$(echo "$match" | jq -r '.enabled')" = "false" ] || [ "$(echo "$match" | jq -r '.enabled')" = "0" ]; then
+  if is_disabled "$match"; then
     host_update "$id" '.enabled = true' && log "Re-enabled adopted host #$id ($c)"
   fi
 }
@@ -369,7 +420,7 @@ create_or_adopt() {
   fi
 
   cert_id=""
-  [ "$AUTO_SSL" = "true" ] && cert_id=$(pick_cert "$domain")
+  [ "$AUTO_SSL" = "yes" ] && cert_id=$(pick_cert "$domain")
 
   payload=$(jq -n --arg d "$domain" --arg h "$FORWARD_HOST" --argjson p "$port" \
     --argjson cert "${cert_id:-0}" '{
@@ -398,14 +449,15 @@ create_or_adopt() {
     return 1
   fi
   log "Created proxy host #$id: $domain -> $FORWARD_HOST:$port ($c)${cert_id:+ [cert #$cert_id, SSL forced]}"
-  managed_put "$c" "{\"id\": $id, \"domain\": \"$domain\", \"disabled\": false}"
+  managed_put "$c" "$(managed_entry "$id" "$domain")"
 }
 
+# shellcheck disable=SC2016 # $d, $fh, $fp, $cert in the drift filters are jq variables
 reconcile_managed_host() {
   # reconcile_managed_host <container> <managed-json> <domain> <port>
   # Bring an already-managed host in line with desired config (drift repair).
   local c=$1 m=$2 domain=$3 port=$4
-  local id live cert_id
+  local id live cert_id="" current_cert
   id=$(echo "$m" | jq -r '.id')
   live=$(host_live "$id")
 
@@ -417,45 +469,49 @@ reconcile_managed_host() {
   fi
 
   # Re-enable if we (or someone) disabled it while the toggle is on
-  if [ "$(echo "$live" | jq -r '.enabled')" = "false" ] || [ "$(echo "$live" | jq -r '.enabled')" = "0" ]; then
+  if is_disabled "$live"; then
     if host_update "$id" '.enabled = true'; then
       log "Re-enabled host #$id ($c)"
       m=$(echo "$m" | jq -c '.disabled = false')
       managed_put "$c" "$m"
     fi
-    live=$(host_live "$id" | jq -c '.enabled = true')
+    live=$(echo "$live" | jq -c '.enabled = true')
   fi
 
   # Enforce desired domain, forward target, and certificate on every managed
   # host. forward_host enforcement is what bulk-updates all managed entries
-  # if the Unraid host's LAN IP ever changes.
-  local drift="" domain_changed=""
+  # if the Unraid host's LAN IP ever changes. The mutation names its values
+  # as jq variables, so nothing from a label or setting is spliced into code.
+  local -a drift=()
+  local changes="" domain_changed=""
   if [ "$(echo "$live" | jq -r --arg d "$domain" '.domain_names == [$d]')" != "true" ]; then
-    drift=".domain_names = [\"$domain\"]"
+    drift+=('.domain_names = [$d]'); changes+=", domain $domain"
     domain_changed=1
   fi
   if [ "$(echo "$live" | jq -r '.forward_host')" != "$FORWARD_HOST" ]; then
-    drift="${drift:+$drift | }.forward_host = \"$FORWARD_HOST\""
+    drift+=('.forward_host = $fh'); changes+=", forward host $FORWARD_HOST"
   fi
   if [ "$(echo "$live" | jq -r '.forward_port')" != "$port" ]; then
-    drift="${drift:+$drift | }.forward_port = $port"
+    drift+=('.forward_port = $fp'); changes+=", forward port $port"
   fi
   # Attach a certificate when there is none, and re-pick when the domain is
   # changing - the old certificate may not cover the new name.
-  if [ "$AUTO_SSL" = "true" ]; then
-    local current_cert
+  if [ "$AUTO_SSL" = "yes" ]; then
     current_cert=$(echo "$live" | jq -r '.certificate_id // 0')
     if [ "$current_cert" = "0" ] || [ -n "$domain_changed" ]; then
       cert_id=$(pick_cert "$domain")
       if [ -n "$cert_id" ] && [ "$cert_id" != "$current_cert" ]; then
-        drift="${drift:+$drift | }.certificate_id = $cert_id | .ssl_forced = true"
+        drift+=('.certificate_id = $cert | .ssl_forced = true'); changes+=", certificate #$cert_id"
       fi
     fi
   fi
 
-  if [ -n "$drift" ]; then
-    if host_update "$id" "$drift"; then
-      log "Updated host #$id ($c): $drift"
+  if [ ${#drift[@]} -gt 0 ]; then
+    local filter
+    filter=$(IFS='|'; echo "${drift[*]}")
+    if host_update "$id" "$filter" --arg d "$domain" --arg fh "$FORWARD_HOST" \
+         --argjson fp "$port" --argjson cert "${cert_id:-0}"; then
+      log "Updated host #$id ($c): ${changes#, }"
       managed_put "$c" "$(echo "$m" | jq -c --arg d "$domain" '.domain = $d | .disabled = false')"
     fi
   fi
@@ -512,79 +568,116 @@ handle_cleanup_request() {
 
 #--- Reconcile ---
 reconcile() {
-  local desired containers c enabled m domain port
+  # -> 0 after a pass that reached NPM, 1 when it could not
+  local desired c enabled m domain port
+  local -A seen=()
 
   desired=$(cat "$STATE_FILE" 2>/dev/null)
-  [ -n "$desired" ] || desired="{}"
+  echo "$desired" | jq -e 'type == "object"' >/dev/null 2>&1 || desired="{}"
 
-  containers=$(docker ps -a --format '{{.Names}}' 2>/dev/null)
-  if [ -z "$containers" ]; then
+  if ! load_containers; then
     log "docker not responding; skipping reconcile"
-    return
+    return 0
   fi
 
-  refresh_caches || return
+  refresh_caches || return 1
 
+  # Only containers with the switch on, or with an entry to manage, need work.
   while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    [ -z "${seen[$c]:-}" ] || continue
+    seen[$c]=1
     enabled=$(echo "$desired" | jq -r --arg c "$c" '.[$c].enabled // false')
     m=$(managed_get "$c")
 
+    if [ -z "${CT_RUNNING[$c]:-}" ]; then
+      # The container no longer exists at all
+      [ -n "$m" ] && { log "Container $c is gone; applying off-policy"; apply_off_action "$c" "$m"; }
+      continue
+    fi
+
     if [ "$enabled" = "true" ]; then
-      domain=$(container_domain "$c") || { [ -n "$m" ] || log "No domain for $c (set DEFAULT_DOMAIN or npm-auto.domain label); skipping"; continue; }
-      valid_domain "$domain" || { log "Invalid domain '$domain' for $c (check DEFAULT_DOMAIN / npm-auto.domain label); skipping"; continue; }
+      domain=$(container_domain "$c" "$desired") || { [ -n "$m" ] || log "No domain for $c (set a default domain or an npm-auto.domain label); skipping"; continue; }
+      valid_domain "$domain" || { log "Invalid domain '$domain' for $c (check the default domain / npm-auto.domain label); skipping"; continue; }
       if [ -n "$m" ]; then
         port=$(container_port "$c") || port=$(echo "$HOSTS_CACHE" | jq -r --argjson id "$(echo "$m" | jq -r .id)" '.[] | select(.id==$id) | .forward_port // empty')
         [ -n "$port" ] || continue
         reconcile_managed_host "$c" "$m" "$domain" "$port"
       else
         # Only create for running containers (ports aren't published otherwise)
-        [ "$(docker inspect --format '{{.State.Running}}' "$c" 2>/dev/null)" = "true" ] || continue
+        [ "${CT_RUNNING[$c]}" = "true" ] || continue
         port=$(container_port "$c") || { log "No published port found for $c; skipping"; continue; }
         create_or_adopt "$c" "$domain" "$port"
       fi
     else
       [ -n "$m" ] && apply_off_action "$c" "$m"
     fi
-  done <<< "$containers"
+  done < <(
+    echo "$desired" | jq -r 'to_entries[] | select(.value.enabled == true) | .key'
+    jq -r 'keys[]' "$(managed_file_or_empty)" 2>/dev/null
+  )
+  return 0
+}
 
-  # Managed entries whose containers no longer exist at all
-  for c in $(jq -r 'keys[]' "$(managed_file_or_empty)" 2>/dev/null); do
-    if ! echo "$containers" | grep -qxF "$c"; then
-      m=$(managed_get "$c")
-      [ -n "$m" ] && { log "Container $c is gone; applying off-policy"; apply_off_action "$c" "$m"; }
-    fi
-  done
+detect_forward_host() {
+  # Re-detected each cycle so a host IP change propagates to all managed
+  # entries via drift enforcement without a restart.
+  local detected
+  detected=$(ip route get 1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -n1)
+  if [ -z "$detected" ]; then
+    [ -n "$FORWARD_HOST" ] || return 1
+  elif [ "$detected" != "$FORWARD_HOST" ]; then
+    FORWARD_HOST=$detected
+    log "Forwarding target host: $FORWARD_HOST"
+  fi
 }
 
 #--- Main ---
+FORWARD_HOST=""
+
 main() {
   mkdir -p "$VAR_DIR"
+
+  if [ "${1:-}" = "--cleanup" ]; then
+    detect_forward_host
+    load_settings
+    handle_cleanup_request
+    exit $?
+  fi
+
   rm -rf "$LOG_SEEN_DIR"
+  # Settings may have changed host or user since the token was issued.
+  rm -f "$TOKEN_FILE"
+  # Leave promptly when stopped, even mid-sleep.
+  trap 'log "npm-auto daemon stopping"; rm -f "$STATUS_FILE"; exit 0' TERM INT
   log "npm-auto daemon starting (pid $$)"
 
   while true; do
     trim_log
-    load_settings
-    handle_cleanup_request
-
-    if [ "$NPM_ENABLED" != "true" ]; then
-      sleep "$RECONCILE_INTERVAL"
-      continue
+    if ! detect_forward_host; then
+      log "Cannot determine host LAN IP; retrying"
+      write_status error "Cannot determine this server's LAN IP"
+    else
+      load_settings
+      if [ "$SERVICE" != "enable" ]; then
+        log "npm-auto is disabled in settings; daemon exiting"
+        rm -f "$STATUS_FILE"
+        exit 0
+      fi
+      handle_cleanup_request
+      if [ -z "$NPM_USER" ] || [ -z "$NPM_PASS" ]; then
+        log "NPM user and password not set; waiting for settings"
+        write_status error "NPM user and password are not set"
+      elif reconcile; then
+        write_status ok
+      else
+        write_status error "Cannot reach NPM at $NPM_BASE_URL or log in (see the log)"
+      fi
     fi
-
-    # Re-detect each cycle so a host IP change propagates to all managed
-    # entries via drift enforcement without a daemon restart.
-    detected=$(ip route get 1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -n1)
-    if [ -z "$detected" ]; then
-      [ -n "$FORWARD_HOST" ] || { log "Cannot determine host LAN IP; retrying"; sleep "$RECONCILE_INTERVAL"; continue; }
-    elif [ "$detected" != "$FORWARD_HOST" ]; then
-      FORWARD_HOST=$detected
-      log "Forwarding target host: $FORWARD_HOST"
-    fi
-
-    reconcile
-    sleep "$RECONCILE_INTERVAL"
+    sleep "$RECONCILE_INTERVAL" &
+    wait $!
   done
 }
 
-main "$@"
+# Sourced (by a test harness) rather than run: define functions only.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] && main "$@"

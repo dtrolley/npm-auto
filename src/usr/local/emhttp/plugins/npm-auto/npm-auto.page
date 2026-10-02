@@ -1,104 +1,139 @@
 Menu="User Utilities"
 Title="npm-auto"
-Icon="folder-open-o"
+Icon="random"
 ---
 <?php
-$settings_file = "/boot/config/plugins/npm-auto/var/settings.json";
-$cleanup_file  = "/boot/config/plugins/npm-auto/var/cleanup_request.json";
+require_once "$docroot/plugins/npm-auto/include/common.php";
 
-// Form field name => canonical settings key. Only these are ever persisted.
-$field_map = [
-    'npm_enabled'       => 'NPM_ENABLED',
-    'npm_host'          => 'NPM_HOST',
-    'npm_port'          => 'NPM_PORT',
-    'npm_user'          => 'NPM_USER',
-    'npm_pass'          => 'NPM_PASS',
-    'default_domain'    => 'DEFAULT_DOMAIN',
-    'label_overrides'   => 'LABEL_OVERRIDES',
-    'auto_ssl'          => 'AUTO_SSL',
-    'toggle_off_action' => 'TOGGLE_OFF_ACTION',
-];
-$checkboxes = ['npm_enabled', 'label_overrides', 'auto_ssl'];
+$cfg     = npm_auto_cfg();
+$lan_ip  = npm_auto_lan_ip();
+$running = npm_auto_running();
+$status  = npm_auto_status();
+$managed = npm_auto_read_json(NPM_AUTO_MANAGED) ?? [];
+$pass_saved = ($cfg['NPM_PASS'] ?? '') !== '';
 
-// Settings currently on the flash, or [] on a fresh install.
-function npm_auto_read_settings($file) {
-    if (!file_exists($file)) return [];
-    $decoded = json_decode(file_get_contents($file), true);
-    return is_array($decoded) ? $decoded : [];
+// One line a person can act on: is it on, and is NPM answering?
+if (($cfg['SERVICE'] ?? '') !== 'enable') {
+    $status_line = _('Disabled');
+} elseif (!$running) {
+    $status_line = _('Stopped') . ' - ' . _('starts with the array');
+} elseif (!$status) {
+    $status_line = _('Starting');
+} elseif (($status['npm'] ?? '') !== 'ok') {
+    $status_line = _('Running') . ' - ' . _('NPM') . ': ' . ($status['error'] ?? _('not reachable'));
+} else {
+    $status_line = _('Running') . ' - ' . sprintf(_('%d managed proxy hosts'), count($managed))
+        . ', ' . _('last checked') . ' ' . date('H:i:s', (int)($status['time'] ?? 0));
 }
-
-if ($_POST) {
-    $previous = npm_auto_read_settings($settings_file);
-    $settings = [];
-    foreach ($field_map as $field => $key) {
-        if (in_array($field, $checkboxes)) {
-            $settings[$key] = isset($_POST[$field]);
-        } else {
-            $settings[$key] = (string)($_POST[$field] ?? '');
-        }
-    }
-    // The stored password is never sent to the browser, so the field comes
-    // back empty unless the user typed a new one: keep the old one then.
-    if ($settings['NPM_PASS'] === '') {
-        $settings['NPM_PASS'] = (string)($previous['NPM_PASS'] ?? '');
-    }
-    if (!in_array($settings['TOGGLE_OFF_ACTION'], ['keep', 'disable', 'delete'])) {
-        $settings['TOGGLE_OFF_ACTION'] = 'disable';
-    }
-    $dir = dirname($settings_file);
-    if (!is_dir($dir)) mkdir($dir, 0755, true);
-    file_put_contents($settings_file, json_encode($settings, JSON_PRETTY_PRINT));
-
-    // If the plugin was just disabled and the user chose a cleanup action in
-    // the prompt, hand it to the daemon.
-    $cleanup = $_POST['cleanup_action'] ?? '';
-    if (!$settings['NPM_ENABLED'] && in_array($cleanup, ['disable', 'delete'])) {
-        file_put_contents($cleanup_file, json_encode(['action' => $cleanup]));
-    }
-}
-
-$settings = npm_auto_read_settings($settings_file);
-
-// Map canonical keys back to form field names for the UI. The password is
-// left out: it would otherwise sit in the page source of every visit.
-$form_values = [];
-foreach ($field_map as $field => $key) {
-    if ($field === 'npm_pass') continue;
-    if (array_key_exists($key, $settings)) $form_values[$field] = $settings[$key];
-}
-$npm_pass_saved = ($settings['NPM_PASS'] ?? '') !== '';
-
-// Pre-fill sensible defaults for a fresh install: NPM ships OOTB on the
-// Unraid host at port 81. Both remain fully customizable.
-if (($form_values['npm_host'] ?? '') === '') {
-    if (preg_match('/src (\S+)/', shell_exec("ip route get 1 2>/dev/null") ?? '', $m)) {
-        $form_values['npm_host'] = $m[1];
-    }
-}
-if (($form_values['npm_port'] ?? '') === '') {
-    $form_values['npm_port'] = '81';
-}
-
-require_once("/usr/local/emhttp/plugins/npm-auto/webGui/settings_ui.php");
 ?>
+<form markdown="1" name="npm_auto_settings" method="POST" action="/update.php" target="progressFrame">
+<input type="hidden" name="#file" value="npm-auto/npm-auto.cfg">
+<input type="hidden" name="#include" value="plugins/npm-auto/include/update.php">
+<input type="hidden" name="#command" value="/plugins/npm-auto/scripts/rc.npm-auto">
+<input type="hidden" name="#arg[1]" value="apply">
+
+_(Status)_:
+: <?=htmlspecialchars($status_line)?>
+
+_(Enable npm-auto)_:
+: <select name="SERVICE">
+  <?=mk_option($cfg['SERVICE'], 'disable', _('No'))?>
+  <?=mk_option($cfg['SERVICE'], 'enable', _('Yes'))?>
+  </select>
+
+> Runs the background service that keeps Nginx Proxy Manager in step with the **Auto Proxy** switches on the Docker tab.
+> Disabling it stops the service and leaves every NPM entry as it is; use the cleanup below first to remove them.
+
+_(NPM host)_:
+: <input type="text" name="NPM_HOST" class="narrow" maxlength="253" value="<?=htmlspecialchars($cfg['NPM_HOST'])?>" placeholder="<?=htmlspecialchars($lan_ip)?>" pattern="[A-Za-z0-9.:\-]*">
+
+_(NPM admin port)_:
+: <input type="number" name="NPM_PORT" class="narrow" min="1" max="65535" value="<?=htmlspecialchars($cfg['NPM_PORT'])?>" placeholder="81">
+
+> Where the Nginx Proxy Manager admin interface answers. Leave the host blank to use this server's own address (<?=htmlspecialchars($lan_ip ?: _('not detected'))?>), which is right when NPM runs as a container here.
+
+_(NPM user)_:
+: <input type="text" name="NPM_USER" maxlength="200" value="<?=htmlspecialchars($cfg['NPM_USER'])?>" autocomplete="off" placeholder="admin@example.com">
+
+_(NPM password)_:
+: <input type="password" name="NPM_PASS" maxlength="200" value="" autocomplete="new-password" placeholder="<?=$pass_saved ? _('Saved - leave blank to keep') : ''?>">
+
+> An NPM account allowed to manage proxy hosts. The password is stored in npm-auto.cfg on the flash drive and is never sent back to the browser.
+
+_(Default domain)_:
+: <input type="text" name="DEFAULT_DOMAIN" maxlength="200" value="<?=htmlspecialchars($cfg['DEFAULT_DOMAIN'])?>" placeholder="example.com" pattern="[A-Za-z0-9.\-]*">
+
+> Each proxied container is served at *container-name*.*default-domain* unless an override says otherwise.
+> Point a wildcard DNS record for this domain at NPM.
+
+_(Use container labels)_:
+: <select name="LABEL_OVERRIDES">
+  <?=mk_option($cfg['LABEL_OVERRIDES'], 'yes', _('Yes'))?>
+  <?=mk_option($cfg['LABEL_OVERRIDES'], 'no', _('No'))?>
+  </select>
+
+> Lets a container choose its own name and port with Docker labels (add them under Extra Parameters):
+> `npm-auto.domain` sets the full domain, e.g. `-l npm-auto.domain=media.example.com`;
+> `npm-auto.port` sets the host port NPM forwards to, e.g. `-l npm-auto.port=8181`.
+> Without a port label, npm-auto uses the port in the container's WebUI setting, then its lowest published port.
+
+_(Attach SSL certificates)_:
+: <select name="AUTO_SSL">
+  <?=mk_option($cfg['AUTO_SSL'], 'yes', _('Yes'))?>
+  <?=mk_option($cfg['AUTO_SSL'], 'no', _('No'))?>
+  </select>
+
+> Uses an unexpired certificate already in NPM that covers the name (exact or wildcard) and forces HTTPS.
+> npm-auto never requests certificates.
+
+_(When Auto Proxy is switched off)_:
+: <select name="TOGGLE_OFF_ACTION">
+  <?=mk_option($cfg['TOGGLE_OFF_ACTION'], 'keep', _('Keep the NPM entry and stop managing it'))?>
+  <?=mk_option($cfg['TOGGLE_OFF_ACTION'], 'disable', _('Disable the NPM entry (reversible)'))?>
+  <?=mk_option($cfg['TOGGLE_OFF_ACTION'], 'delete', _('Delete the NPM entry'))?>
+  </select>
+
+> Also applies when a proxied container is removed.
+
+&nbsp;
+: <input type="submit" name="#apply" value="_(Apply)_"><input type="button" value="_(Done)_" onclick="done()">
+</form>
+
+<div class="title"><span class="left"><i class="fa fa-random title"></i>_(Docker tab)_</span></div>
+
+The Docker tab gains two columns: **Auto Proxy**, a switch per container, and **Subdomain**, the name it is (or will be) served at.
+Click a subdomain to choose a different one; a live entry is renamed within about 15 seconds, with no container restart.
+Clear it to go back to the default. An override set there takes priority over the `npm-auto.domain` label.
+Proxy hosts made by hand in NPM are shown too, muted, but npm-auto does not change them.
+
+<div class="title"><span class="left"><i class="fa fa-wrench title"></i>_(Managed proxy hosts)_</span></div>
+
+Apply an action now to every proxy host npm-auto manages (<?=count($managed)?>). Uninstalling the plugin never touches NPM, so run a cleanup first if you want one.
+
+<input type="button" id="npm-auto-cleanup-disable" value="_(Disable all)_">
+<input type="button" id="npm-auto-cleanup-delete" value="_(Delete all)_">
+<input type="button" value="_(View log)_" onclick="openTerminal('log','npm-auto','npm-auto.log')">
+<span id="npm-auto-cleanup-status"></span>
+
 <script>
-  $(document).ready(function() {
-    const settings = <?= json_encode($form_values, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-    for (const [key, value] of Object.entries(settings)) {
-      const input = $(`#${key}`);
-      if (input.is(':checkbox')) {
-        input.prop('checked', value === true);
-      } else {
-        input.val(value);
-      }
-    }
-    // A password is already saved: leaving the field blank keeps it.
-    if (<?= $npm_pass_saved ? 'true' : 'false' ?>) {
-      $('#npm_pass').prop('required', false)
-        .attr('placeholder', 'Saved - leave blank to keep');
-    }
-    // Remember whether the plugin was enabled when the page loaded, so the
-    // submit handler can detect an enabled -> disabled transition.
-    $('#npm-auto-settings-form').data('was-enabled', settings.npm_enabled === true);
+$(function() {
+  function requestCleanup(mode, text) {
+    swal({title: "_(npm-auto)_", text: text, type: 'warning', showCancelButton: true,
+          confirmButtonText: "_(Proceed)_", cancelButtonText: "_(Cancel)_"}, function() {
+      $.post('/plugins/npm-auto/webGui/settings.php', {action: 'cleanup', mode: mode, csrf_token: csrf_token}, null, 'json')
+        .done(function(data) {
+          $('#npm-auto-cleanup-status').text(data.ok
+            ? "_(Requested - applied within about 15 seconds)_"
+            : data.error);
+        })
+        .fail(function() { $('#npm-auto-cleanup-status').text("_(Request failed)_"); });
+    });
+  }
+  $('#npm-auto-cleanup-disable').click(function() {
+    requestCleanup('disable', "_(Disable every proxy host npm-auto manages?)_");
   });
+  $('#npm-auto-cleanup-delete').click(function() {
+    requestCleanup('delete', "_(Delete every proxy host npm-auto manages, created and adopted alike?)_");
+  });
+});
 </script>

@@ -12,12 +12,17 @@
   let dockerTable;
   let lastData = null;
   let refreshTimers = [];
+  // Set while the switches are moved to match the server, so the change
+  // event that switchButton fires is not taken for a click.
+  let syncing = false;
 
   //--- Columns ---
   // Returns how many rows gained cells, so callers only refetch state when the
   // table actually changed rather than on every live CPU/memory update.
   function addColumn() {
-    const versionHeader = $('table#docker_containers thead th:contains("Version")');
+    // Version is the second column. Found by position, not by its text, which
+    // is translated on non-English webGUIs.
+    const versionHeader = $('table#docker_containers thead tr').first().children('th').eq(1);
     if (versionHeader.length === 0) {
       return 0;
     }
@@ -36,17 +41,16 @@
       const container = $(this).find('.ct-name .appname').text().trim();
       if (!container) return; // not a container row
       if ($(this).find('.npm-auto-toggle').length === 0) {
-        const newCell = `
-          <td class="ct-autostart">
-            <input type="checkbox" class="autostart npm-auto-toggle" data-container="${container}" style="display: none;">
-            <div class="npm-auto-switch-background">
-              <div class="npm-auto-switch-button"></div>
-            </div>
-            <span class="npm-auto-switch-label off">Off</span>
-            <span class="npm-auto-switch-label on" style="display: none;">On</span>
-          </td>
-        `;
-        $(this).find('td').eq(versionIndex).after(newCell);
+        // Not class "autostart": the Docker page's own code walks every
+        // input.autostart expecting an id it derives a wait-field from.
+        const toggle = $('<input type="checkbox" class="npm-auto-toggle">').attr('data-container', container);
+        const cell = $('<td class="npm-auto-cell"></td>').append(toggle);
+        $(this).find('td').eq(versionIndex).after(cell);
+        // switchButton fires change while it builds itself; that is not a click.
+        syncing = true;
+        toggle.switchButton({labels_placement: 'right', on_label: 'On', off_label: 'Off', clear: false});
+        syncing = false;
+        if (lastData) renderToggle(toggle, lastData.state[container]?.enabled === true);
         added++;
       }
       if ($(this).find('.npm-auto-sub').length === 0) {
@@ -61,11 +65,10 @@
 
   //--- Rendering ---
   function renderToggle(checkbox, isChecked) {
-    checkbox.prop('checked', isChecked);
-    const switchBg = checkbox.next('.npm-auto-switch-background');
-    switchBg.toggleClass('checked', isChecked);
-    switchBg.siblings('.on').toggle(isChecked);
-    switchBg.siblings('.off').toggle(!isChecked);
+    if (checkbox.prop('checked') === isChecked) return;
+    syncing = true;
+    checkbox.switchButton('option', 'checked', isChecked);
+    syncing = false;
   }
 
   function defaultSubdomain(container) {
@@ -88,7 +91,7 @@
   }
 
   function renderSubdomain(cell, data) {
-    const container = cell.data('container');
+    const container = cell.attr('data-container');
     const enabled = data.state[container]?.enabled === true;
     const override = data.state[container]?.subdomain || '';
     const managed = data.managed[container];
@@ -143,8 +146,16 @@
   }
 
   function renderAll(data) {
+    // Nothing acts on the switches while the service is off: say so where
+    // they are, rather than letting a switch look like it did something.
+    const off = data.service === false ? 'npm-auto is disabled in Settings > npm-auto, so switches here have no effect yet.'
+      : data.running === false ? 'npm-auto is not running; it starts with the array.'
+      : data.health && data.health.npm !== 'ok' ? 'npm-auto cannot reach NPM: ' + (data.health.error || 'see the log') + '.'
+      : '';
+    $('#npm-auto-header').toggleClass('npm-auto-warn', off !== '')
+      .attr('title', off || 'Create and manage an NPM proxy host for this container');
     $('.npm-auto-toggle').each(function() {
-      const container = $(this).data('container');
+      const container = $(this).attr('data-container');
       renderToggle($(this), data.state[container]?.enabled || false);
     });
     $('td.npm-auto-sub').each(function() {
@@ -168,6 +179,7 @@
         data.labels = data.labels || {};
         data.unmanaged = data.unmanaged || {};
         data.default_domain = data.default_domain || '';
+        if (data.service === undefined) data.service = true; // plugin answers older than 2026.10
         lastData = data;
         renderAll(data);
       },
@@ -210,8 +222,11 @@
     });
   });
 
+  let waited = 0;
   const interval = setInterval(function() {
     dockerTable = $('table#docker_containers');
+    // Docker may be disabled, in which case the table never appears.
+    if (++waited > 300) clearInterval(interval);
     if (dockerTable.length) {
       clearInterval(interval);
       addColumn();
@@ -224,12 +239,11 @@
   }, 100);
 
   //--- Auto Proxy toggle ---
-  $(document).on('click', '.npm-auto-toggle + .npm-auto-switch-background', function() {
-    const checkbox = $(this).prev('.npm-auto-toggle');
-    const container = checkbox.data('container');
-    const enabled = !checkbox.prop('checked');
-
-    renderToggle(checkbox, enabled);
+  $(document).on('change', 'input.npm-auto-toggle', function() {
+    if (syncing) return;
+    const checkbox = $(this);
+    const container = checkbox.attr('data-container');
+    const enabled = checkbox.prop('checked');
 
     post({ action: 'setToggle', container, enabled })
       .done(function(data) {
@@ -244,6 +258,7 @@
       .fail(function(jqXHR, textStatus, errorThrown) {
         console.error('npm-auto setToggle AJAX error:', textStatus, errorThrown, jqXHR.responseText);
         renderToggle(checkbox, !enabled); // roll back on failure
+        showError('Could not reach the server to change Auto Proxy.');
       });
   });
 
@@ -251,7 +266,7 @@
   $(document).on('click', 'td.npm-auto-sub .npm-auto-sub-name', function() {
     if (!lastData) return;
     const cell = $(this).closest('td');
-    const container = cell.data('container');
+    const container = cell.attr('data-container');
     const current = lastData.state[container]?.subdomain
       || shortName(desiredDomain(container, lastData), lastData);
 

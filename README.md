@@ -76,21 +76,26 @@ Updates come from the same URL through Unraid's normal **Check for Updates**.
 
 ## Configure
 
-Open **Settings → User Utilities → npm-auto**:
+Open **Settings → User Utilities → npm-auto**. It is an ordinary Unraid
+settings page (Apply/Done, inline help, settings in `npm-auto.cfg`), and it
+shows the service's status at the top:
 
 | Setting | Notes |
 |---|---|
-| Enable npm-auto | Master switch. When off, the daemon idles. |
-| NPM Host / Port | Pre-filled with this server's LAN IP and `81`, NPM's admin port |
-| NPM User / Password | An NPM login. After saving, the password field stays empty. Leave it blank to keep the saved password. |
-| Default Domain | e.g. `example.com`. Containers become `<name>.example.com`. |
-| Enable Label Overrides | Use the `npm-auto.domain` / `npm-auto.port` labels (on by default) |
-| Auto-attach matching SSL certificate | See the SSL row above |
-| When a toggle is switched off | **Keep**: leave the entry in NPM and stop managing it. **Disable**: switch the entry off in NPM (the default; reversible). **Delete**: remove the entry from NPM. |
+| Enable npm-auto | Starts or stops the background service. Turning it off leaves NPM untouched. |
+| NPM host / admin port | Where NPM's admin interface answers. Leave the host blank for this server's own LAN IP; the port defaults to `81`. |
+| NPM user / password | An NPM login. The password is never sent back to the browser: the field stays empty, and leaving it blank keeps the saved one. |
+| Default domain | e.g. `example.com`. Containers become `<name>.example.com`. |
+| Use container labels | Honour the `npm-auto.domain` / `npm-auto.port` labels (on by default) |
+| Attach SSL certificates | See the SSL row above |
+| When Auto Proxy is switched off | **Keep**: leave the entry in NPM and stop managing it. **Disable**: switch the entry off in NPM (the default; reversible). **Delete**: remove the entry from NPM. |
 
-When you turn the master switch off, the page asks whether to delete or
-disable every managed entry. The same page also has buttons to disable or
-delete all managed entries at once.
+Below the settings, **Disable all** and **Delete all** act on every managed
+entry at once (they work with the service off, too), and **View log** opens
+the daemon's log.
+
+If the service is off or cannot reach NPM, the Docker tab marks the Auto
+Proxy column header with a warning sign; hover it for the reason.
 
 About the NPM account: npm-auto reads certificates and creates, edits and
 deletes proxy hosts. A dedicated NPM user works. If you limit that user's item
@@ -113,27 +118,44 @@ A subdomain set from the Docker tab takes priority over `npm-auto.domain`.
 
 | Path | What |
 |---|---|
-| `/boot/config/plugins/npm-auto/var/settings.json` | Settings, **including the NPM password in plain text** |
+| `/boot/config/plugins/npm-auto/npm-auto.cfg` | Settings, **including the NPM password in plain text**. Before 2026.10 this was `var/settings.json`; upgrading converts it once and keeps the old file as `settings.json.migrated`. |
 | `/boot/config/plugins/npm-auto/var/state.json` | Auto Proxy switches and subdomain overrides |
 | `/boot/config/plugins/npm-auto/var/managed.json` | NPM entries the daemon manages |
 | `/var/log/npm-auto.log` | Daemon log. A repeated line is written at most once an hour, and the file is trimmed past 5 MB. |
 
-The daemon starts when the array starts, stops when it stops, and restarts on
-plugin install or upgrade. To control it by hand:
-`/usr/local/emhttp/plugins/npm-auto/scripts/npm-auto-service.sh {start|stop|restart|status}`
+The daemon starts with the array (when enabled), stops with it, and restarts
+on Apply and on plugin upgrade. To control it by hand:
+`/usr/local/emhttp/plugins/npm-auto/scripts/rc.npm-auto {start|stop|restart|status}`
+
+### For other tools
+
+`/plugins/npm-auto/webGui/settings.php` is a small JSON API on the webGUI
+(session cookie and, for POSTs, the webGUI `csrf_token` required).
+[unraid-mobile](https://github.com/dtrolley/unraid-mobile) uses it to show
+and drive the same switches from a phone:
+
+| Request | Does |
+|---|---|
+| `GET ?action=getState` | Switches, overrides, managed and hand-made entries, labels, default domain; since 2026.10 also `service`, `running`, `health` (the daemon's last pass) and `version` |
+| `POST action=setToggle&container=…&enabled=true\|false` | The Auto Proxy switch |
+| `POST action=setSubdomain&container=…&subdomain=…` | Set an override; empty clears it |
+| `POST action=cleanup&mode=disable\|delete` | Every managed entry |
+
+Every answer is `{"ok": true, …}` or `{"ok": false, "error": "…"}`.
 
 ## Uninstall
 
 Remove the plugin under **Plugins**. Uninstalling stops the daemon and deletes
 `/boot/config/plugins/npm-auto`, which holds your settings, switches and
 overrides. **It never touches NPM.** If you want the managed entries gone, use
-**Disable all / Delete all managed hosts** on the settings page *before*
+**Disable all / Delete all** on the settings page *before*
 uninstalling.
 
 ## Known limitations
 
 - The NPM password is stored in plain text on the flash drive
-  (`settings.json`). Anyone who can read the flash can read it, including
+  (`npm-auto.cfg`), as Unraid stores its own passwords. It cannot contain a
+  double quote. Anyone who can read the flash can read it, including
   through the `flash` SMB share if you export it. Use a dedicated NPM account.
 - The connection to NPM is plain `http://`. Forward targets are always `http`.
 - One domain name per container.

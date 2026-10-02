@@ -18,13 +18,13 @@ jobs:
 
       - name: Shell syntax + shellcheck
         run: |
-          files="pkg_build.sh src/usr/local/emhttp/plugins/npm-auto/scripts/*.sh src/usr/local/emhttp/plugins/npm-auto/event/*"
+          files="pkg_build.sh src/usr/local/emhttp/plugins/npm-auto/scripts/* src/usr/local/emhttp/plugins/npm-auto/event/*"
           for f in $files; do bash -n "$f"; done
           shellcheck -s bash $files
 
       - name: PHP lint
         run: |
-          for f in src/usr/local/emhttp/plugins/npm-auto/webGui/*.php; do php -l "$f"; done
+          for f in src/usr/local/emhttp/plugins/npm-auto/webGui/*.php src/usr/local/emhttp/plugins/npm-auto/include/*.php; do php -l "$f"; done
 
       - name: .plg is well-formed and its package exists with the right MD5
         run: |

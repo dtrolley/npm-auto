@@ -2,18 +2,24 @@
 #==============================================================================
 # pkg_build.sh - build the npm-auto Slackware package (.txz)
 #
-#   ./pkg_build.sh          build archive/npm-auto-<version>.txz and point
-#                           npm-auto.plg at it (version + MD5 entities)
+#   ./pkg_build.sh          build archive/npm-auto-<version>-noarch-1.txz and
+#                           point npm-auto.plg at it (version + MD5 entities)
 #   ./pkg_build.sh --check  build into a scratch dir and verify it; touches
 #                           neither archive/ nor npm-auto.plg (used by CI)
 #
 # Works from a clean checkout on macOS (bsdtar) or Linux (GNU tar). Needs
 # bash, tar, xz and md5sum (macOS: `md5 -q` is used as a fallback).
 #
-# Version scheme: YYYY.MM.DD, then YYYY.MM.DD-01, -02 ... for further builds
+# Version scheme: YYYY.MM.DD, then YYYY.MM.DD.01, .02 ... for further builds
 # the same day. Unraid compares plugin versions with strcmp(), so the counter
-# is zero-padded: an unpadded "-10" would sort below "-9" and never be
+# is zero-padded: an unpadded ".10" would sort below ".9" and never be
 # offered as an update.
+#
+# Package name: npm-auto-<version>-noarch-1, Slackware's name-version-arch-build.
+# upgradepkg only recognises an installed package as an older copy of this one
+# when both are named that way, and the version itself must not contain a
+# hyphen. Before 2026.10.05 the package was plain npm-auto-<version>, so each
+# release was installed alongside the last instead of replacing it.
 #==============================================================================
 
 set -euo pipefail
@@ -53,15 +59,16 @@ md5_of() {
 }
 
 #--- Version ---
+pkg_file() { echo "$ARCHIVE_DIR/$PKG_NAME-$1-noarch-1.txz"; }
 VERSION=$(date +"%Y.%m.%d")
-if [ -f "$ARCHIVE_DIR/$PKG_NAME-$VERSION.txz" ]; then
+if [ -f "$(pkg_file "$VERSION")" ]; then
   i=1
-  while [ -f "$ARCHIVE_DIR/$PKG_NAME-$VERSION-$(printf '%02d' "$i").txz" ]; do
+  while [ -f "$(pkg_file "$VERSION.$(printf '%02d' "$i")")" ]; do
     i=$((i + 1))
   done
-  VERSION="$VERSION-$(printf '%02d' "$i")"
+  VERSION="$VERSION.$(printf '%02d' "$i")"
 fi
-FILENAME="$ARCHIVE_DIR/$PKG_NAME-$VERSION.txz"
+FILENAME=$(pkg_file "$VERSION")
 
 #--- Stage ---
 [ -d "$SRC_DIR/$PLUGIN_SUBDIR" ] || { echo "Missing $SRC_DIR/$PLUGIN_SUBDIR" >&2; exit 1; }
@@ -114,7 +121,7 @@ fi
 MD5=$(md5_of "$FILENAME")
 
 if [ "$CHECK_ONLY" = 1 ]; then
-  echo "Check build OK: $PKG_NAME-$VERSION.txz ($MD5); archive/ and .plg untouched"
+  echo "Check build OK: ${FILENAME##*/} ($MD5); archive/ and .plg untouched"
   exit 0
 fi
 
@@ -129,4 +136,4 @@ echo "Package created: $FILENAME"
 echo "Version: $VERSION"
 echo "MD5: $MD5"
 echo "PLG file updated - add a <CHANGES> entry for $VERSION, then commit"
-echo "npm-auto.plg and archive/$PKG_NAME-$VERSION.txz together."
+echo "npm-auto.plg and archive/${FILENAME##*/} together."

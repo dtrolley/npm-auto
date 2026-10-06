@@ -6,12 +6,22 @@
 <!ENTITY launch "Settings/npm-auto">
 <!ENTITY plugdir "/usr/local/emhttp/plugins/&name;">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/&name;.plg">
-<!ENTITY version "2026.10.01">
-<!ENTITY md5 "ec1ddc6979ed34573cad78e142e76013">
+<!ENTITY version "2026.10.05">
+<!ENTITY pkg "&name;-&version;-noarch-1">
+<!ENTITY md5 "e7d5aee74cdce9c92f364dad3243dbe9">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" icon="random" support="https://www.github.com/dTrolley/npm-auto" min="7.0.0">
     <CHANGES>
+### 2026.10.05
+- Fix: every earlier release stayed installed underneath the newer ones.
+  The package was named npm-auto-VERSION, which Unraid's upgradepkg cannot
+  match as an older copy, so files a release dropped were never removed. The
+  package is now npm-auto-VERSION-noarch-1 and this update removes the old
+  package records, deleting only files the current release no longer ships
+- Same-day builds are numbered YYYY.MM.DD.01 instead of YYYY.MM.DD-01
+  (the package version cannot contain a hyphen)
+
 ### 2026.10.01
 - Settings page rebuilt the Unraid way: Apply/Done, inline help, Yes/No
   choices, a status line, and settings kept in npm-auto.cfg (written by
@@ -94,15 +104,24 @@
 - Initial Release by Gemini
     </CHANGES>
 
-    <FILE Name="/boot/config/plugins/&name;/&name;-&version;.txz" Run="upgradepkg --install-new">
-        <URL>https://raw.githubusercontent.com/&github;/main/archive/&name;-&version;.txz</URL>
+    <FILE Name="/boot/config/plugins/&name;/&pkg;.txz" Run="upgradepkg --install-new">
+        <URL>https://raw.githubusercontent.com/&github;/main/archive/&pkg;.txz</URL>
         <MD5>&md5;</MD5>
     </FILE>
 
     <FILE Run="/bin/bash">
         <INLINE>
             # Remove old package archives, keep the current one
-            find /boot/config/plugins/&name;/ -name "&name;-*.txz" ! -name "&name;-&version;.txz" -delete
+            find /boot/config/plugins/&name;/ -name "&name;-*.txz" ! -name "&pkg;.txz" -delete
+            # Releases before 2026.10.05 were packaged as plain &name;-VERSION,
+            # which upgradepkg cannot match to this package, so each one was
+            # installed on top of the last. Remove those records: removepkg
+            # keeps every file the current package also lists and deletes
+            # only the leftovers.
+            for rec in /var/lib/pkgtools/packages/&name;-[0-9]*; do
+                [ -e "$rec" ] || continue
+                [ "${rec##*/}" = "&pkg;" ] || removepkg --terse "${rec##*/}" >/dev/null 2>/dev/null
+            done
             mkdir -p /boot/config/plugins/&name;/var
             echo "&version;" > /boot/config/plugins/&name;/version
             &plugdir;/scripts/migrate-settings.sh
@@ -121,7 +140,7 @@
     <FILE Run="/bin/bash" Method="remove">
         <INLINE>
             &plugdir;/scripts/rc.npm-auto stop
-            removepkg &name;-&version;
+            removepkg &pkg;
             rm -rf &plugdir;
             rm -rf /boot/config/plugins/&name;
         </INLINE>

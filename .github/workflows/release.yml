@@ -31,7 +31,7 @@ jobs:
           xmllint --noout npm-auto.plg
           version=$(sed -n 's/<!ENTITY version "\(.*\)">/\1/p' npm-auto.plg)
           md5=$(sed -n 's/<!ENTITY md5 "\(.*\)">/\1/p' npm-auto.plg)
-          pkg="archive/npm-auto-$version.txz"
+          pkg="archive/npm-auto-$version-noarch-1.txz"
           test -f "$pkg" || { echo "::error::$pkg (referenced by npm-auto.plg) is missing"; exit 1; }
           echo "$md5  $pkg" | md5sum -c -
 
